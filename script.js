@@ -493,10 +493,10 @@ function buildPreviousTableCalculation(previousSnapshot, currentSnapshot, target
     return {
       expression: targetColumn === previousSnapshot.tableau[pivotRow].length - 1
         ? shortDivision
-        : `fila pivote: anterior / pivote = ${shortDivision}`,
+        : `anterior / pivote = ${shortDivision}`,
       expressionHtml: targetColumn === previousSnapshot.tableau[pivotRow].length - 1
         ? `${renderCalcToken(formatProductFactor(targetValue), "primary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`
-        : `fila pivote: anterior / pivote = ${renderCalcToken(formatProductFactor(targetValue), "primary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`,
+        : `anterior / pivote = ${renderCalcToken(formatProductFactor(targetValue), "primary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`,
       highlights: [
         { row: pivotRow, column: targetColumn, tone: "primary" },
         { row: pivotRow, column: pivotColumn, tone: "pivot" }
@@ -511,8 +511,8 @@ function buildPreviousTableCalculation(previousSnapshot, currentSnapshot, target
   }
 
   return {
-    expression: `valor = c - a*b/p = ${formatProductFactor(targetValue)} - ${formatProductFactor(rowFactor)} * ${formatProductFactor(pivotRowValue)} / ${formatProductFactor(pivotValue)}`,
-    expressionHtml: `valor = c - a*b/p = ${renderCalcToken(formatProductFactor(targetValue), "primary")} - ${renderCalcToken(formatProductFactor(rowFactor), "factor")} * ${renderCalcToken(formatProductFactor(pivotRowValue), "secondary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`,
+    expression: `c - a*b/p = ${formatProductFactor(targetValue)} - ${formatProductFactor(rowFactor)} * ${formatProductFactor(pivotRowValue)} / ${formatProductFactor(pivotValue)}`,
+    expressionHtml: `c - a*b/p = ${renderCalcToken(formatProductFactor(targetValue), "primary")} - ${renderCalcToken(formatProductFactor(rowFactor), "factor")} * ${renderCalcToken(formatProductFactor(pivotRowValue), "secondary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`,
     highlights: [
       { row: targetRow, column: targetColumn, tone: "primary" },
       { row: targetRow, column: pivotColumn, tone: "factor" },
@@ -2055,9 +2055,11 @@ function initializeGraphTooltip() {
       placement = "bottom";
     }
 
+    const clampedLeft = Math.max(12, Math.min(left, maxLeft));
+    const clampedTop = Math.max(12, Math.min(top, maxTop));
     tooltip.dataset.placement = placement;
-    tooltip.style.setProperty("--tooltip-left", `${Math.max(12, Math.min(left, maxLeft))}px`);
-    tooltip.style.setProperty("--tooltip-top", `${Math.max(12, Math.min(top, maxTop))}px`);
+    tooltip.style.setProperty("--tooltip-left", `${clampedLeft}px`);
+    tooltip.style.setProperty("--tooltip-top", `${clampedTop}px`);
   };
 
   const showTooltip = (vertex, clientX, clientY) => {
@@ -2303,9 +2305,7 @@ async function exportElementToPng(element) {
       context.strokeRect(x + (borderWidth / 2), y + (borderWidth / 2), Math.max(0, width - borderWidth), Math.max(0, height - borderWidth));
     }
 
-    const text = node.classList.contains("guide-arrow-row")
-      ? "→"
-      : node.innerText?.trim();
+    const text = node.innerText?.trim();
 
     if (!text) {
       return;
@@ -2316,13 +2316,26 @@ async function exportElementToPng(element) {
     const fontSize = computed.fontSize || "16px";
     const fontFamily = computed.fontFamily || '"Manrope", sans-serif';
     const lineHeight = Number.parseFloat(computed.lineHeight) || (Number.parseFloat(fontSize) * 1.2);
-    const lines = text.split(/\r?\n/);
-    const totalTextHeight = lineHeight * lines.length;
-
     context.font = `${fontStyle}${fontWeight}${fontSize} ${fontFamily}`;
     context.fillStyle = computed.color || "#E8E8E8";
     context.textBaseline = "middle";
     context.textAlign = computed.textAlign === "left" ? "left" : computed.textAlign === "right" ? "right" : "center";
+
+    if (node.classList.contains("guide-arrow-row")) {
+      // In DOM this arrow is an up-arrow rotated via CSS transform. Canvas export must
+      // emulate that transform so the glyph matches the bottom arrow.
+      context.save();
+      context.translate(x + (width / 2), y + (height / 2));
+      context.rotate(Math.PI / 2);
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(text, 0, 0);
+      context.restore();
+      return;
+    }
+
+    const lines = text.split(/\r?\n/);
+    const totalTextHeight = lineHeight * lines.length;
 
     const textX = computed.textAlign === "left"
       ? x + 8
@@ -2783,9 +2796,7 @@ function buildTableMarkup(snapshot, previousSnapshot = null) {
       const baseExpression = `${formatProductFactor(rhs)} / ${formatProductFactor(coefficient)}`;
 
       return {
-        expression: rowIndex === leavingRow
-          ? `Fila pivote: valor anterior / pivote -> ${baseExpression}`
-          : baseExpression,
+        expression: baseExpression,
         display: formatExtendedNumber(ratio)
       };
     });

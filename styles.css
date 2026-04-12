@@ -294,6 +294,22 @@ select:focus {
   transform: translateY(-1px);
 }
 
+.composer .button,
+.composer .relation-toggle,
+.composer .mini-stepper-button {
+  animation: none !important;
+  transition: none !important;
+}
+
+.composer .button:hover,
+.composer .button:focus-visible,
+.composer .relation-toggle:hover,
+.composer .relation-toggle:focus-visible,
+.composer .mini-stepper-button:hover,
+.composer .mini-stepper-button:focus-visible {
+  transform: none !important;
+}
+
 .button.primary {
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
   color: #f8fbfa;
@@ -753,6 +769,14 @@ select:focus {
   gap: 10px;
   border-color: var(--line);
   background: var(--surface);
+  animation: none !important;
+  transition: none !important;
+  transform: none !important;
+}
+
+.tables-copy-button:hover,
+.tables-copy-button:focus-visible {
+  transform: none !important;
 }
 
 .tables-copy-button[data-state="success"] {
@@ -838,7 +862,7 @@ select:focus {
   border-radius: 14px;
   border: 1px solid var(--line);
   background:
-    linear-gradient(180deg, rgba(21, 31, 28, 0.96), rgba(12, 19, 17, 0.94));
+    linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(9, 14, 28, 0.94));
   box-shadow:
     0 12px 28px rgba(0, 0, 0, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
@@ -849,26 +873,6 @@ select:focus {
   transform-origin: top left;
   transition: opacity 170ms ease, transform 170ms ease;
   z-index: 3;
-}
-
-.graph-tooltip::after {
-  content: "";
-  position: absolute;
-  inset: auto auto -7px 18px;
-  width: 14px;
-  height: 14px;
-  background: rgba(16, 24, 22, 0.94);
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  transform: rotate(45deg);
-}
-
-.graph-tooltip[data-placement="bottom"]::after {
-  inset: -7px auto auto 18px;
-  border-right: none;
-  border-bottom: none;
-  border-top: 1px solid var(--line);
-  border-left: 1px solid var(--line);
 }
 
 .graph-tooltip.is-visible {
