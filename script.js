@@ -1,6 +1,27 @@
 ﻿const EPSILON = 1e-9;
 const RELATION_SEQUENCE = ["<=", ">=", "="];
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const THEME = {
+  graphConstraintColors: ["#a8a8a8", "#7f7f7f"],
+  graphFaceColors: ["rgba(140, 140, 140, 0.18)", "rgba(90, 90, 90, 0.2)"],
+  graphBindingColor: "#E8E8E8",
+  graphGrid: "rgba(232, 232, 232, 0.14)",
+  graphLabel: "#b6b6b6",
+  graphAxis: "#E8E8E8",
+  graphObjective: "#ff3b30",
+  graphRegionFill: "rgba(68, 88, 204, 0.6)",
+  graphRegionStroke: "rgba(225, 232, 255, 0.86)",
+  graphFaceBinding: "rgba(232, 232, 232, 0.16)",
+  graphFaceAxis: "rgba(255, 255, 255, 0.06)",
+  graphFaceStroke: "rgba(232, 232, 232, 0.14)",
+  graphEdge: "rgba(232, 232, 232, 0.5)",
+  graphGuide: "rgba(232, 232, 232, 0.22)",
+  graphVertexFill: "rgba(8, 13, 12, 0.98)",
+  graphVertexOptimumFill: "#4a4a4a",
+  exportBaseStart: "#262626",
+  exportBaseEnd: "#212121",
+  exportGlow: "#a0a0a0"
+};
 
 const state = {
   variableCount: 2,
@@ -23,6 +44,22 @@ const simplexForm = document.getElementById("simplex-form");
 const resultSummary = document.getElementById("result-summary");
 const graphPanel = document.getElementById("graph-panel");
 const iterationGroups = document.getElementById("iteration-groups");
+
+function scrollPageToTop() {
+  window.scrollTo(0, 0);
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+}
+
+function resetInitialScrollPosition() {
+  requestAnimationFrame(() => {
+    scrollPageToTop();
+    requestAnimationFrame(scrollPageToTop);
+  });
+}
+
+window.addEventListener("pageshow", resetInitialScrollPosition);
+window.addEventListener("load", resetInitialScrollPosition);
 
 function createEmptyConstraint(variableCount) {
   return {
@@ -70,6 +107,24 @@ function formatExtendedNumber(value) {
   }
 
   return formatNumber(value);
+}
+
+function formatProductFactor(value) {
+  return value < -EPSILON
+    ? `(${formatNumber(value)})`
+    : formatNumber(value);
+}
+
+function renderTableValue(value) {
+  if (value === "∞" || value === "-∞") {
+    return `<span class="infinity-symbol">${value}</span>`;
+  }
+
+  return value;
+}
+
+function renderCalcToken(text, tone) {
+  return `<span class="calc-token${tone ? ` calc-token-${tone}` : ""}">${escapeHtml(text)}</span>`;
 }
 
 function formatLinearExpression(coefficients) {
@@ -413,14 +468,72 @@ function captureSnapshot({ phase, title, note, variableNames, basis, tableau, pi
   };
 }
 
+function buildPreviousTableCalculation(previousSnapshot, currentSnapshot, targetRow, targetColumn) {
+  if (!previousSnapshot || !currentSnapshot?.pivot) {
+    return null;
+  }
+
+  const pivotRow = currentSnapshot.pivot.row;
+  const pivotColumn = currentSnapshot.pivot.column;
+  const pivotValue = previousSnapshot.tableau[pivotRow]?.[pivotColumn];
+  const targetValue = previousSnapshot.tableau[targetRow]?.[targetColumn];
+  const pivotRowValue = previousSnapshot.tableau[pivotRow]?.[targetColumn];
+
+  if (
+    !Number.isFinite(pivotValue) ||
+    !Number.isFinite(targetValue) ||
+    !Number.isFinite(pivotRowValue)
+  ) {
+    return null;
+  }
+
+  if (targetRow === pivotRow) {
+    const shortDivision = `${formatProductFactor(targetValue)} / ${formatProductFactor(pivotValue)}`;
+
+    return {
+      expression: targetColumn === previousSnapshot.tableau[pivotRow].length - 1
+        ? shortDivision
+        : `fila pivote: anterior / pivote = ${shortDivision}`,
+      expressionHtml: targetColumn === previousSnapshot.tableau[pivotRow].length - 1
+        ? `${renderCalcToken(formatProductFactor(targetValue), "primary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`
+        : `fila pivote: anterior / pivote = ${renderCalcToken(formatProductFactor(targetValue), "primary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`,
+      highlights: [
+        { row: pivotRow, column: targetColumn, tone: "primary" },
+        { row: pivotRow, column: pivotColumn, tone: "pivot" }
+      ]
+    };
+  }
+
+  const rowFactor = previousSnapshot.tableau[targetRow]?.[pivotColumn];
+
+  if (!Number.isFinite(rowFactor)) {
+    return null;
+  }
+
+  return {
+    expression: `valor = c - a*b/p = ${formatProductFactor(targetValue)} - ${formatProductFactor(rowFactor)} * ${formatProductFactor(pivotRowValue)} / ${formatProductFactor(pivotValue)}`,
+    expressionHtml: `valor = c - a*b/p = ${renderCalcToken(formatProductFactor(targetValue), "primary")} - ${renderCalcToken(formatProductFactor(rowFactor), "factor")} * ${renderCalcToken(formatProductFactor(pivotRowValue), "secondary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`,
+    highlights: [
+      { row: targetRow, column: targetColumn, tone: "primary" },
+      { row: targetRow, column: pivotColumn, tone: "factor" },
+      { row: pivotRow, column: targetColumn, tone: "secondary" },
+      { row: pivotRow, column: pivotColumn, tone: "pivot" }
+    ]
+  };
+}
+
 function findEnteringColumn(objectiveRow) {
+  let selectedColumn = -1;
+  let mostNegativeValue = -EPSILON;
+
   for (let columnIndex = 0; columnIndex < objectiveRow.length - 1; columnIndex += 1) {
-    if (objectiveRow[columnIndex] < -EPSILON) {
-      return columnIndex;
+    if (objectiveRow[columnIndex] < mostNegativeValue) {
+      mostNegativeValue = objectiveRow[columnIndex];
+      selectedColumn = columnIndex;
     }
   }
 
-  return -1;
+  return selectedColumn;
 }
 
 function chooseLeavingRow(tableau, enteringColumn) {
@@ -478,7 +591,7 @@ function pivotMatrix(matrix, pivotRowIndex, pivotColumnIndex) {
 
 function runSimplexPhase({ phase, variableNames, basis, constraintRows, objectiveCoefficients, snapshots }) {
   const tableau = [...cloneMatrix(constraintRows), buildObjectiveRow(objectiveCoefficients, basis, constraintRows)];
-  snapshots.push(captureSnapshot({
+  const initialSnapshot = captureSnapshot({
     phase,
     title: "Tabla inicial",
     note: "",
@@ -486,7 +599,8 @@ function runSimplexPhase({ phase, variableNames, basis, constraintRows, objectiv
     basis,
     tableau,
     objectiveCoefficients
-  }));
+  });
+  snapshots.push(initialSnapshot);
 
   let iteration = 0;
 
@@ -514,6 +628,12 @@ function runSimplexPhase({ phase, variableNames, basis, constraintRows, objectiv
     }
 
     const leavingVariable = variableNames[basis[leavingRow]];
+    const currentSnapshot = snapshots[snapshots.length - 1];
+
+    if (currentSnapshot) {
+      currentSnapshot.note = `Entra ${variableNames[enteringColumn]} y sale ${leavingVariable}.`;
+    }
+
     iteration += 1;
     pivotMatrix(tableau, leavingRow, enteringColumn);
     basis[leavingRow] = enteringColumn;
@@ -521,7 +641,7 @@ function runSimplexPhase({ phase, variableNames, basis, constraintRows, objectiv
     snapshots.push(captureSnapshot({
       phase,
       title: `Iteracion ${iteration}`,
-      note: `Entra ${variableNames[enteringColumn]} y sale ${leavingVariable}.`,
+      note: "",
       variableNames,
       basis,
       tableau,
@@ -1280,7 +1400,7 @@ function buildGraphData2D(result) {
       ...constraint,
       segment: buildLineSegmentInBounds(constraint, xMax, yMax),
       binding: bindingConstraints.some((item) => item.rowIndex === constraint.rowIndex),
-      color: index % 2 === 0 ? "#7f8482" : "#a0a5a3"
+      color: THEME.graphConstraintColors[index % THEME.graphConstraintColors.length]
     })),
     bindingConstraints,
     activeAxes
@@ -1347,7 +1467,7 @@ function buildGraphData3D(result) {
     ...constraints.map((constraint, index) => ({
       ...constraint,
       binding: bindingConstraints.some((item) => item.rowIndex === constraint.rowIndex),
-      color: index % 2 === 0 ? "rgba(64, 80, 185, 0.18)" : "rgba(29, 41, 37, 0.14)"
+      color: THEME.graphFaceColors[index % THEME.graphFaceColors.length]
     })),
     buildAxisBoundary3D(0),
     buildAxisBoundary3D(1),
@@ -1372,7 +1492,7 @@ function buildGraphData3D(result) {
     constraints: constraints.map((constraint, index) => ({
       ...constraint,
       binding: bindingConstraints.some((item) => item.rowIndex === constraint.rowIndex),
-      color: index % 2 === 0 ? "#7f8482" : "#a0a5a3"
+      color: THEME.graphConstraintColors[index % THEME.graphConstraintColors.length]
     })),
     bindingConstraints,
     activeAxes
@@ -1507,43 +1627,7 @@ function buildGraphTooltipMarkup() {
 }
 
 function buildGraphSideMarkup(graphData) {
-  const bindingItems = graphData.bindingConstraints.map((constraint) => `
-    <div class="binding-item">
-      <span class="binding-badge">${constraint.label}</span>
-    </div>
-  `).join("");
-
-  const axisItems = graphData.activeAxes.map((label) => `
-    <div class="binding-item">
-      <span class="binding-badge">${label}</span>
-    </div>
-  `).join("");
-
-  const legendItems = graphData.constraints.map((constraint) => `
-    <div class="legend-item">
-      <span class="legend-swatch ${constraint.binding ? "binding" : ""}" style="color:${constraint.binding ? "#16211d" : constraint.color}">${constraint.label}</span>
-      <span>${constraint.display}</span>
-    </div>
-  `).join("");
-
-  return `
-    <div class="graph-side">
-      <section class="graph-card">
-        <h4>Condiciones vinculantes</h4>
-        <div class="binding-list">
-          ${bindingItems || '<div class="graph-empty">No se detectaron restricciones vinculantes adicionales.</div>'}
-          ${axisItems}
-        </div>
-      </section>
-
-      <section class="graph-card">
-        <h4>Restricciones dibujadas</h4>
-        <div class="constraint-legend">
-          ${legendItems}
-        </div>
-      </section>
-    </div>
-  `;
+  return "";
 }
 
 function renderGraph2D(graphData) {
@@ -1587,8 +1671,8 @@ function renderGraph2D(graphData) {
     const point = toSvgPoint({ x: tick, y: 0 });
 
     return `
-      <line x1="${point.x}" y1="${padding.top}" x2="${point.x}" y2="${height - padding.bottom}" stroke="rgba(22, 33, 29, 0.12)" stroke-dasharray="3 6" />
-      <text x="${point.x}" y="${height - padding.bottom + 26}" text-anchor="middle" fill="#56635e" font-size="13">${formatNumber(tick)}</text>
+      <line x1="${point.x}" y1="${padding.top}" x2="${point.x}" y2="${height - padding.bottom}" stroke="${THEME.graphGrid}" stroke-dasharray="3 6" />
+      <text x="${point.x}" y="${height - padding.bottom + 26}" text-anchor="middle" fill="${THEME.graphLabel}" font-size="13">${formatNumber(tick)}</text>
     `;
   }).join("");
 
@@ -1596,8 +1680,8 @@ function renderGraph2D(graphData) {
     const point = toSvgPoint({ x: 0, y: tick });
 
     return `
-      <line x1="${padding.left}" y1="${point.y}" x2="${width - padding.right}" y2="${point.y}" stroke="rgba(22, 33, 29, 0.12)" stroke-dasharray="3 6" />
-      <text x="${padding.left - 14}" y="${point.y + 5}" text-anchor="end" fill="#56635e" font-size="13">${formatNumber(tick)}</text>
+      <line x1="${padding.left}" y1="${point.y}" x2="${width - padding.right}" y2="${point.y}" stroke="${THEME.graphGrid}" stroke-dasharray="3 6" />
+      <text x="${padding.left - 14}" y="${point.y + 5}" text-anchor="end" fill="${THEME.graphLabel}" font-size="13">${formatNumber(tick)}</text>
     `;
   }).join("");
 
@@ -1611,7 +1695,7 @@ function renderGraph2D(graphData) {
       x: ((from.x + to.x) / 2) + ((index % 2 === 0) ? 14 : -14),
       y: ((from.y + to.y) / 2) - 12 - ((index % 3) * 8)
     };
-    const color = constraint.binding ? "#16211d" : constraint.color;
+    const color = constraint.binding ? THEME.graphBindingColor : constraint.color;
 
     return `
       <line
@@ -1637,7 +1721,7 @@ function renderGraph2D(graphData) {
           y1="${from.y}"
           x2="${to.x}"
           y2="${to.y}"
-          stroke="#d63a2f"
+          stroke="${THEME.graphObjective}"
           stroke-width="4"
           stroke-linecap="round"
           opacity="0.95"
@@ -1665,18 +1749,18 @@ function renderGraph2D(graphData) {
         <svg class="graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Grafico de la region factible y restricciones vinculantes del problema">
           <defs>
             <marker id="objective-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
-              <path d="M0,0 L8,3 L0,6 Z" fill="#d63a2f"></path>
+              <path d="M0,0 L8,3 L0,6 Z" fill="${THEME.graphObjective}"></path>
             </marker>
           </defs>
 
           ${gridLinesX}
           ${gridLinesY}
 
-          <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" stroke="#16211d" stroke-width="2.5" />
-          <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${padding.left}" y2="${padding.top}" stroke="#16211d" stroke-width="2.5" />
+          <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" stroke="${THEME.graphAxis}" stroke-width="2.5" />
+          <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${padding.left}" y2="${padding.top}" stroke="${THEME.graphAxis}" stroke-width="2.5" />
 
-          ${regionPolygon ? `<polygon points="${regionPolygon}" fill="rgba(40, 52, 151, 0.82)" stroke="#111111" stroke-width="4"></polygon>` : ""}
-          ${regionPolyline ? `<polyline points="${regionPolyline}" fill="none" stroke="rgba(40, 52, 151, 0.82)" stroke-width="6" stroke-linecap="round"></polyline>` : ""}
+          ${regionPolygon ? `<polygon points="${regionPolygon}" fill="${THEME.graphRegionFill}" stroke="${THEME.graphRegionStroke}" stroke-width="4"></polygon>` : ""}
+          ${regionPolyline ? `<polyline points="${regionPolyline}" fill="none" stroke="${THEME.graphRegionStroke}" stroke-width="6" stroke-linecap="round"></polyline>` : ""}
 
           ${constraintLines}
           ${objectiveLine}
@@ -1686,7 +1770,7 @@ function renderGraph2D(graphData) {
             y1="${optimumPoint.y}"
             x2="${arrowEndPoint.x}"
             y2="${arrowEndPoint.y}"
-            stroke="#d63a2f"
+            stroke="${THEME.graphObjective}"
             stroke-width="4"
             stroke-linecap="round"
             marker-end="url(#objective-arrow)"
@@ -1695,10 +1779,10 @@ function renderGraph2D(graphData) {
           ${vertexMarkers}
 
           ${renderVertexMarker(optimumData, optimumPoint, 10, "graph-vertex-optimum")}
-          <text x="${optimumPoint.x + 14}" y="${optimumPoint.y - 14}" fill="#16211d" font-size="15" font-weight="800">Optimo</text>
+          <text x="${optimumPoint.x + 14}" y="${optimumPoint.y - 14}" fill="${THEME.graphAxis}" font-size="15" font-weight="800">Optimo</text>
 
-          <text x="${width - padding.right + 4}" y="${height - padding.bottom + 8}" fill="#16211d" font-size="15" font-weight="800">X1</text>
-          <text x="${padding.left - 6}" y="${padding.top - 6}" fill="#16211d" font-size="15" font-weight="800">X2</text>
+          <text x="${width - padding.right + 4}" y="${height - padding.bottom + 8}" fill="${THEME.graphAxis}" font-size="15" font-weight="800">X1</text>
+          <text x="${padding.left - 6}" y="${padding.top - 6}" fill="${THEME.graphAxis}" font-size="15" font-weight="800">X2</text>
         </svg>
         ${buildGraphTooltipMarkup()}
       </div>
@@ -1729,9 +1813,9 @@ function renderGraph3D(graphData) {
   };
   const origin = { x: 0, y: 0, z: 0 };
   const axisPoints = [
-    { label: "X1", point: { x: graphData.xMax, y: 0, z: 0 }, color: "#16211d" },
-    { label: "X2", point: { x: 0, y: graphData.yMax, z: 0 }, color: "#16211d" },
-    { label: "X3", point: { x: 0, y: 0, z: graphData.zMax }, color: "#16211d" }
+    { label: "X1", point: { x: graphData.xMax, y: 0, z: 0 }, color: THEME.graphAxis },
+    { label: "X2", point: { x: 0, y: graphData.yMax, z: 0 }, color: THEME.graphAxis },
+    { label: "X3", point: { x: 0, y: 0, z: graphData.zMax }, color: THEME.graphAxis }
   ];
   const objectiveDirection = state.objectiveType === "max"
     ? {
@@ -1791,8 +1875,8 @@ function renderGraph3D(graphData) {
         stroke-width="3"
         stroke-linecap="round"
       />
-      <text x="${to.x + 10}" y="${to.y + (axis.label === "X3" ? -8 : 4)}" fill="#16211d" font-size="16" font-weight="800">${axis.label}</text>
-      <text x="${to.x + 10}" y="${to.y + (axis.label === "X3" ? 12 : 22)}" fill="#56635e" font-size="12">${formatNumber(axisMax)}</text>
+      <text x="${to.x + 10}" y="${to.y + (axis.label === "X3" ? -8 : 4)}" fill="${THEME.graphAxis}" font-size="16" font-weight="800">${axis.label}</text>
+      <text x="${to.x + 10}" y="${to.y + (axis.label === "X3" ? 12 : 22)}" fill="${THEME.graphLabel}" font-size="12">${formatNumber(axisMax)}</text>
     `;
   }).join("");
 
@@ -1801,9 +1885,9 @@ function renderGraph3D(graphData) {
       const projectedPoints = face.points.map(toSvgPoint);
       const depth = face.centroid.x + face.centroid.y + face.centroid.z;
       const fill = face.binding
-        ? "rgba(22, 33, 29, 0.22)"
+        ? THEME.graphFaceBinding
         : face.isAxis
-          ? "rgba(15, 122, 90, 0.08)"
+          ? THEME.graphFaceAxis
           : face.color;
 
       return {
@@ -1812,7 +1896,7 @@ function renderGraph3D(graphData) {
           <polygon
             points="${projectedPoints.map((point) => `${point.x},${point.y}`).join(" ")}"
             fill="${fill}"
-            stroke="${face.binding ? "#16211d" : "rgba(22, 33, 29, 0.14)"}"
+            stroke="${face.binding ? THEME.graphBindingColor : THEME.graphFaceStroke}"
             stroke-width="${face.binding ? 2.4 : 1.2}"
           ></polygon>
         `
@@ -1832,7 +1916,7 @@ function renderGraph3D(graphData) {
         y1="${from.y}"
         x2="${to.x}"
         y2="${to.y}"
-        stroke="${edge.binding ? "#16211d" : "rgba(22, 33, 29, 0.7)"}"
+        stroke="${edge.binding ? THEME.graphBindingColor : THEME.graphEdge}"
         stroke-width="${edge.binding ? 3.4 : 2.1}"
         stroke-linecap="round"
       />
@@ -1853,7 +1937,7 @@ function renderGraph3D(graphData) {
         y1="${from.y}"
         x2="${to.x}"
         y2="${to.y}"
-        stroke="rgba(22, 33, 29, 0.22)"
+        stroke="${THEME.graphGuide}"
         stroke-width="1.4"
         stroke-dasharray="5 6"
       />
@@ -1884,7 +1968,7 @@ function renderGraph3D(graphData) {
         <svg class="graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Grafico tridimensional de la region factible y restricciones vinculantes del problema">
           <defs>
             <marker id="objective-arrow-3d" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
-              <path d="M0,0 L8,3 L0,6 Z" fill="#d63a2f"></path>
+              <path d="M0,0 L8,3 L0,6 Z" fill="${THEME.graphObjective}"></path>
             </marker>
           </defs>
 
@@ -1898,7 +1982,7 @@ function renderGraph3D(graphData) {
             y1="${objectiveArrowStart.y}"
             x2="${objectiveArrowFinish.x}"
             y2="${objectiveArrowFinish.y}"
-            stroke="#d63a2f"
+            stroke="${THEME.graphObjective}"
             stroke-width="3.2"
             stroke-linecap="round"
             marker-end="url(#objective-arrow-3d)"
@@ -1906,8 +1990,8 @@ function renderGraph3D(graphData) {
 
           ${vertexMarkers}
           ${renderVertexMarker(optimumData, optimumPoint, 9, "graph-vertex-optimum")}
-          <text x="${optimumPoint.x + 12}" y="${optimumPoint.y - 14}" fill="#16211d" font-size="15" font-weight="800">Optimo</text>
-          <text x="${toSvgPoint(origin).x - 16}" y="${toSvgPoint(origin).y + 22}" fill="#56635e" font-size="12">0</text>
+          <text x="${optimumPoint.x + 12}" y="${optimumPoint.y - 14}" fill="${THEME.graphAxis}" font-size="15" font-weight="800">Optimo</text>
+          <text x="${toSvgPoint(origin).x - 16}" y="${toSvgPoint(origin).y + 22}" fill="${THEME.graphLabel}" font-size="12">0</text>
         </svg>
         ${buildGraphTooltipMarkup()}
       </div>
@@ -2076,6 +2160,48 @@ function scheduleGraphCopyButtonReset(button) {
   }, 1800);
 }
 
+function setGenericCopyButtonState(button, state, labels) {
+  const label = button.querySelector("[data-copy-label]");
+
+  button.dataset.state = state;
+
+  if (!label) {
+    return;
+  }
+
+  if (state === "busy") {
+    label.textContent = labels.busy;
+    button.setAttribute("aria-busy", "true");
+    return;
+  }
+
+  button.removeAttribute("aria-busy");
+
+  if (state === "success") {
+    label.textContent = labels.success;
+    return;
+  }
+
+  if (state === "download") {
+    label.textContent = labels.download;
+    return;
+  }
+
+  if (state === "error") {
+    label.textContent = labels.error;
+    return;
+  }
+
+  label.textContent = labels.idle;
+}
+
+function scheduleGenericCopyButtonReset(button, labels) {
+  window.clearTimeout(button._resetTimer);
+  button._resetTimer = window.setTimeout(() => {
+    setGenericCopyButtonState(button, "idle", labels);
+  }, 1800);
+}
+
 function initializeGraphCopyButton() {
   const button = graphPanel.querySelector(".graph-copy-button");
   const svg = graphPanel.querySelector(".graph-svg");
@@ -2116,6 +2242,170 @@ function initializeGraphCopyButton() {
     }
 
     scheduleGraphCopyButtonReset(button);
+  });
+}
+
+async function exportElementToPng(element) {
+  if (document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      // Seguimos con las fuentes disponibles si alguna falla.
+    }
+  }
+
+  const rect = element.getBoundingClientRect();
+  const exportWidth = Math.ceil(rect.width);
+  const exportHeight = Math.ceil(rect.height);
+  const scale = Math.max(2, Math.ceil(window.devicePixelRatio || 1));
+  const canvas = document.createElement("canvas");
+  canvas.width = exportWidth * scale;
+  canvas.height = exportHeight * scale;
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("No se pudo crear el contexto del canvas.");
+  }
+
+  context.scale(scale, scale);
+  context.fillStyle = "#212121";
+  context.fillRect(0, 0, exportWidth, exportHeight);
+
+  const drawableNodes = [
+    ...element.querySelectorAll(
+      ".phase-heading-actions > p, .table-iteration-title, .table-iteration-note, .classroom-tableau th:not(.top-blank):not(.top-gap):not(.guide-gutter), .classroom-tableau td:not(.guide-gutter), .classroom-tableau .guide-arrow"
+    )
+  ];
+
+  drawableNodes.forEach((node) => {
+    if (!(node instanceof HTMLElement)) {
+      return;
+    }
+
+    const nodeRect = node.getBoundingClientRect();
+    const x = nodeRect.left - rect.left;
+    const y = nodeRect.top - rect.top;
+    const width = nodeRect.width;
+    const height = nodeRect.height;
+    const computed = window.getComputedStyle(node);
+
+    if (computed.backgroundColor && computed.backgroundColor !== "rgba(0, 0, 0, 0)" && computed.backgroundColor !== "transparent") {
+      context.fillStyle = computed.backgroundColor;
+      context.fillRect(x, y, width, height);
+    }
+
+    const borderWidth = Number.parseFloat(computed.borderTopWidth);
+
+    if (borderWidth > 0 && computed.borderTopColor && computed.borderTopColor !== "transparent") {
+      context.strokeStyle = computed.borderTopColor;
+      context.lineWidth = borderWidth;
+      context.strokeRect(x + (borderWidth / 2), y + (borderWidth / 2), Math.max(0, width - borderWidth), Math.max(0, height - borderWidth));
+    }
+
+    const text = node.classList.contains("guide-arrow-row")
+      ? "→"
+      : node.innerText?.trim();
+
+    if (!text) {
+      return;
+    }
+
+    const fontStyle = computed.fontStyle && computed.fontStyle !== "normal" ? `${computed.fontStyle} ` : "";
+    const fontWeight = computed.fontWeight ? `${computed.fontWeight} ` : "";
+    const fontSize = computed.fontSize || "16px";
+    const fontFamily = computed.fontFamily || '"Manrope", sans-serif';
+    const lineHeight = Number.parseFloat(computed.lineHeight) || (Number.parseFloat(fontSize) * 1.2);
+    const lines = text.split(/\r?\n/);
+    const totalTextHeight = lineHeight * lines.length;
+
+    context.font = `${fontStyle}${fontWeight}${fontSize} ${fontFamily}`;
+    context.fillStyle = computed.color || "#E8E8E8";
+    context.textBaseline = "middle";
+    context.textAlign = computed.textAlign === "left" ? "left" : computed.textAlign === "right" ? "right" : "center";
+
+    const textX = computed.textAlign === "left"
+      ? x + 8
+      : computed.textAlign === "right"
+        ? x + width - 8
+        : x + (width / 2);
+    let lineY = y + (height / 2) - (totalTextHeight / 2) + (lineHeight / 2);
+
+    lines.forEach((line) => {
+      context.fillText(line, textX, lineY);
+      lineY += lineHeight;
+    });
+  });
+
+  return await new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+
+      reject(new Error("No se pudo generar la imagen PNG."));
+    }, "image/png");
+  });
+}
+
+async function copyOrDownloadElementPng(element, button, labels) {
+  setGenericCopyButtonState(button, "busy", labels);
+
+  try {
+    const pngBlob = await exportElementToPng(element);
+
+    if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "image/png": pngBlob
+        })
+      ]);
+      setGenericCopyButtonState(button, "success", labels);
+    } else {
+      downloadGraphBlob(pngBlob);
+      setGenericCopyButtonState(button, "download", labels);
+    }
+  } catch (error) {
+    try {
+      const pngBlob = await exportElementToPng(element);
+      downloadGraphBlob(pngBlob);
+      setGenericCopyButtonState(button, "download", labels);
+    } catch {
+      setGenericCopyButtonState(button, "error", labels);
+    }
+  }
+
+  scheduleGenericCopyButtonReset(button, labels);
+}
+
+function initializeTableCopyButtons() {
+  const labels = {
+    idle: "Copiar tablas",
+    busy: "Copiando...",
+    success: "Copiado",
+    download: "Descargado",
+    error: "Sin copiar"
+  };
+
+  iterationGroups.querySelectorAll(".tables-copy-button").forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    button.addEventListener("click", async () => {
+      if (button.dataset.state === "busy") {
+        return;
+      }
+
+      const phaseBlock = button.closest(".phase-block");
+
+      if (!(phaseBlock instanceof HTMLElement)) {
+        return;
+      }
+
+      await copyOrDownloadElementPng(phaseBlock, button, labels);
+    });
   });
 }
 
@@ -2183,8 +2473,8 @@ function serializeGraphSvg(svg, exportWidth, exportHeight) {
   const exportStyle = document.createElementNS(SVG_NAMESPACE, "style");
   exportStyle.textContent = `
     text { font-family: "Manrope", sans-serif; }
-    .graph-vertex-ring { fill: rgba(255, 252, 245, 0.98); stroke: #16211d; stroke-width: 2.5; }
-    .graph-vertex-optimum .graph-vertex-ring { fill: #d7e4ea; stroke-width: 3; }
+    .graph-vertex-ring { fill: ${THEME.graphVertexFill}; stroke: ${THEME.graphAxis}; stroke-width: 2.5; }
+    .graph-vertex-optimum .graph-vertex-ring { fill: ${THEME.graphVertexOptimumFill}; stroke-width: 3; }
   `;
   defs.appendChild(exportStyle);
 
@@ -2196,8 +2486,8 @@ function serializeGraphSvg(svg, exportWidth, exportHeight) {
   linearGradient.setAttribute("y2", "100%");
 
   [
-    { offset: "0%", color: "#f4f1e8", opacity: "0.94" },
-    { offset: "100%", color: "#ffffff", opacity: "0.94" }
+    { offset: "0%", color: THEME.exportBaseStart, opacity: "0.96" },
+    { offset: "100%", color: THEME.exportBaseEnd, opacity: "0.96" }
   ].forEach((stopData) => {
     const stop = document.createElementNS(SVG_NAMESPACE, "stop");
     stop.setAttribute("offset", stopData.offset);
@@ -2213,8 +2503,8 @@ function serializeGraphSvg(svg, exportWidth, exportHeight) {
   radialGradient.setAttribute("r", "42%");
 
   [
-    { offset: "0%", color: "#0f7a5a", opacity: "0.12" },
-    { offset: "100%", color: "#0f7a5a", opacity: "0" }
+    { offset: "0%", color: THEME.exportGlow, opacity: "0.16" },
+    { offset: "100%", color: THEME.exportGlow, opacity: "0" }
   ].forEach((stopData) => {
     const stop = document.createElementNS(SVG_NAMESPACE, "stop");
     stop.setAttribute("offset", stopData.offset);
@@ -2465,17 +2755,17 @@ function renderSummary(result) {
   `;
 }
 
-function buildTableMarkup(snapshot) {
+function buildTableMarkup(snapshot, previousSnapshot = null) {
   const objectiveRow = snapshot.tableau[snapshot.tableau.length - 1];
   const rhsColumnIndex = objectiveRow.length - 1;
-  const formatProductFactor = (value) => value < -EPSILON
-    ? `(${formatNumber(value)})`
-    : formatNumber(value);
+  const dataColumnWidth = "30px";
+  const guideColumnWidth = "22px";
+  const buildFixedCol = (width) => `<col style="width:${width}">`;
   const enteringColumn = findEnteringColumn(objectiveRow);
   const leavingRow = enteringColumn === -1 ? -1 : chooseLeavingRow(snapshot.tableau, enteringColumn);
   const ratios = enteringColumn === -1
     ? []
-    : snapshot.tableau.slice(0, -1).map((row) => {
+    : snapshot.tableau.slice(0, -1).map((row, rowIndex) => {
       const coefficient = row[enteringColumn];
       const rhs = row[rhsColumnIndex];
       if (Math.abs(coefficient) < EPSILON) {
@@ -2490,8 +2780,12 @@ function buildTableMarkup(snapshot) {
       }
 
       const ratio = cleanNumber(rhs / coefficient);
+      const baseExpression = `${formatProductFactor(rhs)} / ${formatProductFactor(coefficient)}`;
+
       return {
-        expression: `${formatProductFactor(rhs)} / ${formatProductFactor(coefficient)}`,
+        expression: rowIndex === leavingRow
+          ? `Fila pivote: valor anterior / pivote -> ${baseExpression}`
+          : baseExpression,
         display: formatExtendedNumber(ratio)
       };
     });
@@ -2537,21 +2831,45 @@ function buildTableMarkup(snapshot) {
       : ` tabindex="0" data-guide-target="row" data-calc-expression="${escapeHtml(ratioInfo.expression)}" data-calc-result="${escapeHtml(ratioInfo.display)}"`;
 
     const cells = row.slice(0, -1).map((value, columnIndex) => {
+      const previousCalculation = buildPreviousTableCalculation(previousSnapshot, snapshot, rowIndex, columnIndex);
       const classes = [
         columnIndex === enteringColumn ? "pivot-column" : "",
-        rowIndex === leavingRow && columnIndex === enteringColumn ? "pivot-cell" : ""
+        rowIndex === leavingRow && columnIndex === enteringColumn ? "pivot-cell" : "",
+        previousCalculation ? "calc-trigger calc-from-previous" : ""
       ].filter(Boolean).join(" ");
+      const previousAttributes = previousCalculation
+        ? `
+            tabindex="0"
+            data-calc-mode="previous"
+            data-calc-expression="${escapeHtml(previousCalculation.expression)}"
+            data-calc-html="${escapeHtml(previousCalculation.expressionHtml ?? previousCalculation.expression)}"
+            data-calc-result="${escapeHtml(formatNumber(value))}"
+            data-prev-highlights="${escapeHtml(JSON.stringify(previousCalculation.highlights))}"
+          `
+        : "";
 
-      return `<td class="${classes}">${formatNumber(value)}</td>`;
+      return `<td class="${classes}" data-table-row="${rowIndex}" data-table-col="${columnIndex}"${previousAttributes}>${formatNumber(value)}</td>`;
     }).join("");
+
+    const rhsCalculation = buildPreviousTableCalculation(previousSnapshot, snapshot, rowIndex, rhsColumnIndex);
+    const rhsAttributes = rhsCalculation
+      ? `
+          tabindex="0"
+          data-calc-mode="previous"
+          data-calc-expression="${escapeHtml(rhsCalculation.expression)}"
+          data-calc-html="${escapeHtml(rhsCalculation.expressionHtml ?? rhsCalculation.expression)}"
+          data-calc-result="${escapeHtml(formatNumber(rhs))}"
+          data-prev-highlights="${escapeHtml(JSON.stringify(rhsCalculation.highlights))}"
+        `
+      : "";
 
     return `
       <tr class="${rowIndex === leavingRow ? "pivot-row" : ""}">
         <td class="ck-cell">${formatNumber(basisCost)}</td>
         <td class="basis-variable">${formatSymbol(basisVariable)}</td>
-        <td class="rhs-cell section-divider-right">${formatNumber(rhs)}</td>
+        <td class="rhs-cell section-divider-right ${rhsCalculation ? "calc-trigger calc-from-previous" : ""}" data-table-row="${rowIndex}" data-table-col="${rhsColumnIndex}"${rhsAttributes}>${formatNumber(rhs)}</td>
         ${cells}
-        <td class="ratio-cell section-divider-left ${ratioInfo == null ? "" : "calc-trigger"}"${ratioAttributes}>${ratioInfo == null ? "&nbsp;" : ratioInfo.display}</td>
+        <td class="ratio-cell section-divider-left ${ratioInfo == null ? "" : "calc-trigger"}"${ratioAttributes}>${ratioInfo == null ? "&nbsp;" : renderTableValue(ratioInfo.display)}</td>
         <td class="guide-gutter row-guide-cell">
           <div class="row-guide-shell ${rowIndex === leavingRow ? "has-arrow" : ""}">
             <span class="guide-calc"></span>
@@ -2567,6 +2885,7 @@ function buildTableMarkup(snapshot) {
     : formatNumber(objectiveRow[rhsColumnIndex]);
 
   const objectiveCells = objectiveRow.slice(0, -1).map((value, columnIndex) => {
+    const previousCalculation = buildPreviousTableCalculation(previousSnapshot, snapshot, basisRows.length, columnIndex);
     const zjExpression = basisRows.length
       ? basisRows.map(({ basisCost, row }) => `${formatProductFactor(basisCost)} &times; ${formatProductFactor(row[columnIndex])}`).join(" + ")
       : "0";
@@ -2575,8 +2894,18 @@ function buildTableMarkup(snapshot) {
       ? `${zjExpression} - ${formatProductFactor(cjValue)}`
       : zjExpression;
 
+    const previousAttributes = previousCalculation
+      ? `
+          data-calc-mode="previous"
+          data-calc-expression="${escapeHtml(previousCalculation.expression)}"
+          data-calc-html="${escapeHtml(previousCalculation.expressionHtml ?? previousCalculation.expression)}"
+          data-calc-result="${escapeHtml(formatNumber(value))}"
+          data-prev-highlights="${escapeHtml(JSON.stringify(previousCalculation.highlights))}"
+        `
+      : "";
+
     return `
-      <td class="${columnIndex === enteringColumn ? "pivot-column " : ""}calc-trigger" tabindex="0" data-guide-target="bottom" data-calc-expression="${escapeHtml(fullExpression.replaceAll("&times;", "x"))}" data-calc-result="${escapeHtml(formatNumber(value))}">${formatNumber(value)}</td>
+      <td class="${columnIndex === enteringColumn ? "pivot-column " : ""}calc-trigger" tabindex="0" data-table-row="${basisRows.length}" data-table-col="${columnIndex}" ${previousCalculation ? previousAttributes : `data-guide-target="bottom" data-calc-expression="${escapeHtml(fullExpression.replaceAll("&times;", "x"))}" data-calc-result="${escapeHtml(formatNumber(value))}"`}>${formatNumber(value)}</td>
     `;
   }).join("");
   const bottomGuideMarkup = enteringColumn === -1
@@ -2610,6 +2939,12 @@ function buildTableMarkup(snapshot) {
   return `
     <div class="table-wrap classroom-wrap">
       <table class="classroom-tableau">
+        <colgroup>
+          ${Array.from({ length: 3 }, () => buildFixedCol(dataColumnWidth)).join("")}
+          ${Array.from({ length: snapshot.variableNames.length }, () => buildFixedCol(dataColumnWidth)).join("")}
+          ${buildFixedCol(dataColumnWidth)}
+          ${buildFixedCol(guideColumnWidth)}
+        </colgroup>
         <thead>
           <tr class="cj-row">
             <th colspan="2" class="top-blank iteration-spot">
@@ -2656,6 +2991,45 @@ function clearGuideCalculations(container) {
   });
 }
 
+function clearTraceHighlights(container = iterationGroups) {
+  container.querySelectorAll(".trace-cell-primary, .trace-cell-secondary, .trace-cell-factor, .trace-cell-pivot, .trace-cell-current, .trace-row-focus").forEach((node) => {
+    node.classList.remove("trace-cell-primary", "trace-cell-secondary", "trace-cell-factor", "trace-cell-pivot", "trace-cell-current", "trace-row-focus");
+  });
+}
+
+function applyTraceHighlights(card, highlights) {
+  if (!(card instanceof HTMLElement) || !Array.isArray(highlights)) {
+    return;
+  }
+
+  highlights.forEach((highlight) => {
+    const row = Number(highlight.row);
+    const column = Number(highlight.column);
+    const tone = String(highlight.tone || "primary");
+    const cell = card.querySelector(`[data-table-row="${row}"][data-table-col="${column}"]`);
+
+    if (!(cell instanceof HTMLElement)) {
+      return;
+    }
+
+    cell.classList.add(
+      tone === "pivot"
+        ? "trace-cell-pivot"
+        : tone === "factor"
+          ? "trace-cell-factor"
+          : tone === "secondary"
+            ? "trace-cell-secondary"
+            : "trace-cell-primary"
+    );
+
+    const rowElement = cell.closest("tr");
+
+    if (rowElement instanceof HTMLElement) {
+      rowElement.classList.add("trace-row-focus");
+    }
+  });
+}
+
 function updateGuideCalculation(target) {
   const card = target.closest(".iteration-card");
 
@@ -2663,22 +3037,54 @@ function updateGuideCalculation(target) {
     return;
   }
 
-  clearGuideCalculations(card);
+  clearGuideCalculations(iterationGroups);
+  clearTraceHighlights(iterationGroups);
+  if (!target.classList.contains("ratio-cell") && !target.closest(".objective-row")) {
+    target.classList.add("trace-cell-current");
+  }
 
-  const guideTarget = target.dataset.guideTarget;
   const expression = target.dataset.calcExpression ?? "";
+  const expressionHtml = target.dataset.calcHtml ?? "";
   const result = target.dataset.calcResult ?? "";
   const fullText = `${expression} = ${result}`;
+  const fullHtml = expressionHtml
+    ? `${expressionHtml} = <span class="calc-token calc-token-result">${escapeHtml(result)}</span>`
+    : escapeHtml(fullText);
+  const calcMode = target.dataset.calcMode ?? "current";
 
-  const calcNode = guideTarget === "row"
-    ? target.closest("tr")?.querySelector(".row-guide-cell .guide-calc")
-    : card.querySelector(".bottom-guide-display .guide-calc");
+  if (calcMode === "previous") {
+    const previousCard = card.previousElementSibling;
+
+    if (!(previousCard instanceof HTMLElement)) {
+      return;
+    }
+
+    const previousCalcNode = previousCard.querySelector(".bottom-guide-display .guide-calc");
+
+    if (!(previousCalcNode instanceof HTMLElement)) {
+      return;
+    }
+
+    previousCalcNode.innerHTML = fullHtml;
+    previousCalcNode.classList.add("is-active");
+
+    try {
+      const highlights = JSON.parse(target.dataset.prevHighlights ?? "[]");
+      applyTraceHighlights(previousCard, highlights);
+    } catch {
+      // Ignore malformed highlight payloads and keep the hover usable.
+    }
+
+    return;
+  }
+
+  const calcNode = card.querySelector(".bottom-guide-display .guide-calc");
 
   if (!(calcNode instanceof HTMLElement)) {
     return;
   }
 
-  calcNode.textContent = fullText;
+  calcNode.innerHTML = fullHtml;
   calcNode.classList.add("is-active");
 }
 
@@ -2703,25 +3109,44 @@ function renderSnapshots(snapshots) {
     return `
       <section class="phase-block">
         <div class="phase-heading">
-          <h3>${phase}</h3>
-          <p>${iterationCount} iteracion${iterationCount === 1 ? "" : "es"}</p>
+          <div class="phase-heading-actions">
+            <p>${iterationCount} iteracion${iterationCount === 1 ? "" : "es"}</p>
+            <button type="button" class="button secondary tables-copy-button" data-export-hidden>
+              <span class="graph-copy-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M9 5.75A2.75 2.75 0 0 1 11.75 3h6.5A2.75 2.75 0 0 1 21 5.75v9.5A2.75 2.75 0 0 1 18.25 18h-6.5A2.75 2.75 0 0 1 9 15.25z"></path>
+                  <path d="M4.75 7A1.75 1.75 0 0 0 3 8.75v9.5A2.75 2.75 0 0 0 5.75 21h7.5A1.75 1.75 0 0 0 15 19.25"></path>
+                </svg>
+              </span>
+              <span data-copy-label>Copiar tablas</span>
+            </button>
+          </div>
         </div>
-        ${items.map((snapshot) => `
+        ${items.map((snapshot, index) => `
           <article class="iteration-card">
-            ${buildTableMarkup(snapshot)}
+            ${buildTableMarkup(snapshot, index > 0 ? items[index - 1] : null)}
           </article>
         `).join("")}
       </section>
     `;
   }).join("");
+
+  initializeTableCopyButtons();
 }
 
 function clearResults() {
   resultSummary.classList.add("empty-state");
-  resultSummary.innerHTML = 'Carga un modelo y presiona <strong>Resolver y generar tablas</strong> para ver el desarrollo completo.';
+  resultSummary.innerHTML = 'Ajusta el modelo para ver automaticamente las tablas, pivotes y la solucion.';
   graphPanel.classList.add("hidden");
   graphPanel.innerHTML = "";
   iterationGroups.innerHTML = "";
+}
+
+function refreshResults() {
+  const result = solveModel();
+  renderSummary(result);
+  renderGraph(result);
+  renderSnapshots(result.snapshots ?? []);
 }
 
 function syncDimensionsFromInputs({ normalize = false } = {}) {
@@ -2743,12 +3168,14 @@ function syncDimensionsFromInputs({ normalize = false } = {}) {
 
   resizeState(variables, constraints);
   renderModel();
+  refreshResults();
 }
 
 objectiveToggle.addEventListener("click", () => {
   state.objectiveType = state.objectiveType === "max" ? "min" : "max";
   renderObjectiveToggle();
   renderObjectiveExpression();
+  refreshResults();
 });
 
 [variableCountInput, constraintCountInput].forEach((input) => {
@@ -2782,6 +3209,8 @@ simplexForm.addEventListener("input", (event) => {
     const rowIndex = Number(target.dataset.row);
     state.constraints[rowIndex].rhs = parseNumericValue(target.value);
   }
+
+  refreshResults();
 });
 
 simplexForm.addEventListener("click", (event) => {
@@ -2815,16 +3244,7 @@ simplexForm.addEventListener("click", (event) => {
   state.constraints[rowIndex].relation = nextRelation;
   relationButton.innerHTML = renderRelationSymbol(nextRelation);
   relationButton.setAttribute("aria-label", `Relacion de la restriccion ${rowIndex + 1}: ${nextRelation}. Click para cambiar`);
-});
-
-simplexForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-
-  const result = solveModel();
-  renderSummary(result);
-  renderGraph(result);
-  renderSnapshots(result.snapshots ?? []);
-  document.getElementById("results-section").scrollIntoView({ behavior: "smooth", block: "start" });
+  refreshResults();
 });
 
 ["mouseover", "focusin"].forEach((eventName) => {
@@ -2875,9 +3295,11 @@ simplexForm.addEventListener("submit", (event) => {
       return;
     }
 
-    clearGuideCalculations(card);
+    clearGuideCalculations(iterationGroups);
+    clearTraceHighlights(iterationGroups);
   });
 });
 
 resizeState(state.variableCount, state.constraintCount);
 renderModel();
+refreshResults();

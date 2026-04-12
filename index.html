@@ -3,7 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#09110f">
   <title>Simplex</title>
+  <script>
+    if ("scrollRestoration" in history) {
+      history.scrollRestoration = "manual";
+    }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -12,6 +18,13 @@
 <body>
   <div class="app-shell">
     <main class="workspace">
+      <section class="page-header reveal">
+        <div class="section-heading">
+          <p class="section-kicker">UTN</p>
+          <h1>Investigacion Operativa</h1>
+        </div>
+      </section>
+
       <section class="composer reveal">
         <form id="simplex-form" class="model-form">
           <section class="equation-zone">
@@ -49,9 +62,6 @@
             <div id="constraints-list" class="constraint-list"></div>
           </section>
 
-          <div class="action-row">
-            <button class="button primary" type="submit">Resolver y generar tablas</button>
-          </div>
         </form>
       </section>
 
@@ -62,7 +72,7 @@
         </div>
 
         <div id="result-summary" class="result-summary empty-state">
-          Carga un modelo y presiona <strong>Resolver y generar tablas</strong> para ver el desarrollo completo.
+          Ajusta el modelo para ver automaticamente las tablas, pivotes y la solucion.
         </div>
 
         <div id="graph-panel" class="graph-panel hidden"></div>
