@@ -1,4 +1,5 @@
 ﻿const EPSILON = 1e-9;
+const BIG_M_SYMBOL = "M";
 const RELATION_SEQUENCE = ["<=", ">=", "="];
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const THEME = {
@@ -25,25 +26,89 @@ const THEME = {
 
 const state = {
   variableCount: 2,
-  constraintCount: 3,
+  constraintCount: 4,
+  numberFormat: "fraction",
   objectiveType: "max",
-  objectiveCoefficients: [20, 40],
+  objectiveCoefficients: [4, 5],
   constraints: [
-    { coefficients: [2, 4], relation: "<=", rhs: 500 },
-    { coefficients: [1, 1], relation: "<=", rhs: 200 },
-    { coefficients: [0, 1], relation: "<=", rhs: 100 }
+    { coefficients: [10, 4], relation: ">=", rhs: 3600 },
+    { coefficients: [2, 1], relation: "<=", rhs: 1200 },
+    { coefficients: [1, 0], relation: "<=", rhs: 500 },
+    { coefficients: [1, 2], relation: ">=", rhs: 1000 }
   ]
 };
+
+const transportState = {
+  originCount: 3,
+  destinationCount: 4,
+  offers: [30, 27, 23],
+  demands: [14, 21, 35, 10],
+  costs: [
+    [12, 16, 13, 19],
+    [14, 11, 9, 17],
+    [12, 16, 7, 14]
+  ]
+};
+
+const TRANSPORT_PRESETS = {
+  simple: {
+    originCount: 3,
+    destinationCount: 4,
+    offers: [30, 27, 23],
+    demands: [14, 21, 35, 10],
+    costs: [
+      [12, 16, 13, 19],
+      [14, 11, 9, 17],
+      [12, 16, 7, 14]
+    ]
+  },
+  circuit: {
+    originCount: 4,
+    destinationCount: 6,
+    offers: [100, 250, 300, 180],
+    demands: [70, 130, 140, 150, 150, 190],
+    costs: [
+      [8, 5, 2, 7, 3, 9],
+      [5, 7, 4, 5, 8, 6],
+      [9, 3, 6, 4, 2, 7],
+      [11, 8, 2, 5, 1, 9]
+    ]
+  }
+};
+
+const TRANSPORT_HIGHLIGHT_COLORS = [
+  "rgba(226, 179, 107, 0.22)",
+  "rgba(138, 216, 255, 0.2)",
+  "rgba(160, 230, 174, 0.2)",
+  "rgba(255, 143, 132, 0.2)",
+  "rgba(200, 180, 255, 0.2)",
+  "rgba(255, 214, 120, 0.2)"
+];
 
 const variableCountInput = document.getElementById("variable-count");
 const constraintCountInput = document.getElementById("constraint-count");
 const objectiveToggle = document.getElementById("objective-toggle");
+const displayModeButtons = Array.from(document.querySelectorAll(".display-mode-button"));
 const objectiveExpression = document.getElementById("objective-expression");
 const constraintsList = document.getElementById("constraints-list");
 const simplexForm = document.getElementById("simplex-form");
 const resultSummary = document.getElementById("result-summary");
 const graphPanel = document.getElementById("graph-panel");
 const iterationGroups = document.getElementById("iteration-groups");
+const transportForm = document.getElementById("transport-form");
+const transportOriginCountInput = document.getElementById("transport-origin-count");
+const transportDestinationCountInput = document.getElementById("transport-destination-count");
+const transportLoadSimpleButton = document.getElementById("transport-load-simple-button");
+const transportLoadCircuitButton = document.getElementById("transport-load-circuit-button");
+const transportClearButton = document.getElementById("transport-clear-button");
+const transportGrid = document.getElementById("transport-grid");
+const transportResults = document.getElementById("transport-results");
+const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
+const tabPanels = {
+  simplex: document.getElementById("panel-simplex"),
+  transport: document.getElementById("panel-transport")
+};
+let activeTab = "simplex";
 
 function scrollPageToTop() {
   window.scrollTo(0, 0);
@@ -55,6 +120,26 @@ function resetInitialScrollPosition() {
   requestAnimationFrame(() => {
     scrollPageToTop();
     requestAnimationFrame(scrollPageToTop);
+  });
+}
+
+function setActiveTab(nextTab) {
+  if (!tabPanels[nextTab] || activeTab === nextTab) {
+    return;
+  }
+
+  activeTab = nextTab;
+
+  tabButtons.forEach((button) => {
+    const isActive = button.dataset.tab === nextTab;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+    button.tabIndex = isActive ? 0 : -1;
+  });
+
+  Object.entries(tabPanels).forEach(([tabName, panel]) => {
+    const isActive = tabName === nextTab;
+    panel.classList.toggle("hidden", !isActive);
   });
 }
 
@@ -88,13 +173,197 @@ function formatNumber(value) {
     return "0";
   }
 
-  const rounded = Math.round(value * 1000) / 1000;
+  const rounded = roundDecimal(value, 3);
 
   if (Number.isInteger(rounded)) {
     return String(rounded);
   }
 
   return rounded.toFixed(3).replace(/\.?0+$/, "");
+}
+
+function roundDecimal(value, decimals = 3) {
+  const factor = 10 ** decimals;
+  const offset = Number.EPSILON * Math.sign(value || 1);
+  return Math.round((value + offset) * factor) / factor;
+}
+
+function formatCompactDisplayNumber(value) {
+  if (Math.abs(value) >= 1000000) {
+    const compact = roundDecimal(value / 1000000, 2);
+
+    if (Number.isInteger(compact)) {
+      return `${compact}M`;
+    }
+
+    return `${compact.toFixed(2).replace(/\.?0+$/, "")}M`;
+  }
+
+  return formatNumber(value);
+}
+
+function computeGreatestCommonDivisor(a, b) {
+  let left = Math.abs(a);
+  let right = Math.abs(b);
+
+  while (right !== 0) {
+    const remainder = left % right;
+    left = right;
+    right = remainder;
+  }
+
+  return left || 1;
+}
+
+function isExactRationalValue(value) {
+  return value != null && typeof value === "object" && (
+    Object.prototype.hasOwnProperty.call(value, "numerator") &&
+    Object.prototype.hasOwnProperty.call(value, "denominator")
+  );
+}
+
+function createExactRational(numerator, denominator = 1) {
+  if (denominator === 0) {
+    throw new Error("No se puede crear una fraccion con denominador cero.");
+  }
+
+  const normalizedNumerator = Math.round(numerator);
+  const normalizedDenominator = Math.round(denominator);
+  const sign = normalizedDenominator < 0 ? -1 : 1;
+  const divisor = computeGreatestCommonDivisor(normalizedNumerator, normalizedDenominator);
+
+  return {
+    numerator: sign * (normalizedNumerator / divisor),
+    denominator: sign * (normalizedDenominator / divisor)
+  };
+}
+
+function exactRationalFromNumber(value) {
+  if (isExactRationalValue(value)) {
+    return { ...value };
+  }
+
+  if (!Number.isFinite(value)) {
+    return createExactRational(0, 1);
+  }
+
+  if (Number.isInteger(value)) {
+    return createExactRational(value, 1);
+  }
+
+  const asString = String(value).includes("e") || String(value).includes("E")
+    ? value.toFixed(12).replace(/0+$/, "").replace(/\.$/, "")
+    : String(value);
+  const sign = asString.startsWith("-") ? -1 : 1;
+  const unsigned = asString.replace(/^[+-]/, "");
+  const [integerPart, decimalPart = ""] = unsigned.split(".");
+
+  if (!decimalPart) {
+    return createExactRational(sign * Number(integerPart || "0"), 1);
+  }
+
+  const denominator = 10 ** decimalPart.length;
+  const numerator = (Number(integerPart || "0") * denominator) + Number(decimalPart);
+  return createExactRational(sign * numerator, denominator);
+}
+
+function exactRationalToNumber(value) {
+  const rational = exactRationalFromNumber(value);
+  return rational.numerator / rational.denominator;
+}
+
+function exactAddRational(left, right) {
+  const first = exactRationalFromNumber(left);
+  const second = exactRationalFromNumber(right);
+
+  return createExactRational(
+    (first.numerator * second.denominator) + (second.numerator * first.denominator),
+    first.denominator * second.denominator
+  );
+}
+
+function exactSubtractRational(left, right) {
+  const first = exactRationalFromNumber(left);
+  const second = exactRationalFromNumber(right);
+
+  return createExactRational(
+    (first.numerator * second.denominator) - (second.numerator * first.denominator),
+    first.denominator * second.denominator
+  );
+}
+
+function exactMultiplyRational(left, right) {
+  const first = exactRationalFromNumber(left);
+  const second = exactRationalFromNumber(right);
+
+  return createExactRational(
+    first.numerator * second.numerator,
+    first.denominator * second.denominator
+  );
+}
+
+function exactDivideRational(left, right) {
+  const first = exactRationalFromNumber(left);
+  const second = exactRationalFromNumber(right);
+
+  if (second.numerator === 0) {
+    throw new Error("No se puede dividir por cero.");
+  }
+
+  return createExactRational(
+    first.numerator * second.denominator,
+    first.denominator * second.numerator
+  );
+}
+
+function exactIsZeroRational(value) {
+  return exactRationalFromNumber(value).numerator === 0;
+}
+
+function formatExactRational(value) {
+  const rational = exactRationalFromNumber(value);
+
+  if (state.numberFormat !== "fraction") {
+    return formatCompactDisplayNumber(exactRationalToNumber(rational));
+  }
+
+  if (rational.denominator === 1) {
+    return String(rational.numerator);
+  }
+
+  return `${rational.numerator}/${rational.denominator}`;
+}
+
+function formatFractionNumber(value) {
+  if (Math.abs(value) < EPSILON) {
+    return "0";
+  }
+
+  const sign = value < 0 ? "-" : "";
+  const absolute = Math.abs(value);
+  const rounded = Math.round(absolute * 1000) / 1000;
+
+  if (Number.isInteger(rounded)) {
+    return `${sign}${rounded}`;
+  }
+
+  const scaledNumerator = Math.round(rounded * 1000);
+  const scaledDenominator = 1000;
+  const divisor = computeGreatestCommonDivisor(scaledNumerator, scaledDenominator);
+  const numerator = scaledNumerator / divisor;
+  const denominator = scaledDenominator / divisor;
+
+  return `${sign}${numerator}/${denominator}`;
+}
+
+function formatDisplayNumber(value) {
+  return state.numberFormat === "fraction"
+    ? formatFractionNumber(value)
+    : formatCompactDisplayNumber(value);
+}
+
+function formatGraphNumber(value) {
+  return formatCompactDisplayNumber(value);
 }
 
 function formatExtendedNumber(value) {
@@ -106,13 +375,350 @@ function formatExtendedNumber(value) {
     return "-∞";
   }
 
-  return formatNumber(value);
+  return formatDisplayNumber(value);
+}
+
+function isBigMValue(value) {
+  return value != null && typeof value === "object" && (
+    Object.prototype.hasOwnProperty.call(value, "constant") ||
+    Object.prototype.hasOwnProperty.call(value, "bigM")
+  );
+}
+
+function isExactBigMValue(value) {
+  return value != null && typeof value === "object" && (
+    Object.prototype.hasOwnProperty.call(value, "constant") &&
+    Object.prototype.hasOwnProperty.call(value, "bigM") &&
+    (isExactRationalValue(value.constant) || isExactRationalValue(value.bigM))
+  );
+}
+
+function toBigMParts(value) {
+  if (isBigMValue(value)) {
+    return {
+      constant: cleanNumber(Number(value.constant) || 0),
+      bigM: cleanNumber(Number(value.bigM) || 0)
+    };
+  }
+
+  return {
+    constant: cleanNumber(Number(value) || 0),
+    bigM: 0
+  };
+}
+
+function normalizeBigMValue(value) {
+  const parts = toBigMParts(value);
+
+  if (Math.abs(parts.bigM) < EPSILON) {
+    return cleanNumber(parts.constant);
+  }
+
+  return parts;
+}
+
+function cloneCellValue(value) {
+  return isBigMValue(value) ? { ...toBigMParts(value) } : value;
+}
+
+function isZeroValue(value) {
+  if (isExactRationalValue(value) || isExactBigMValue(value)) {
+    return exactCompareValueToZero(value) === 0;
+  }
+
+  const parts = toBigMParts(value);
+  return Math.abs(parts.constant) < EPSILON && Math.abs(parts.bigM) < EPSILON;
+}
+
+function negateValue(value) {
+  const parts = toBigMParts(value);
+  return normalizeBigMValue({
+    constant: parts.constant * -1,
+    bigM: parts.bigM * -1
+  });
+}
+
+function addValues(left, right) {
+  const leftParts = toBigMParts(left);
+  const rightParts = toBigMParts(right);
+  return normalizeBigMValue({
+    constant: leftParts.constant + rightParts.constant,
+    bigM: leftParts.bigM + rightParts.bigM
+  });
+}
+
+function subtractValues(left, right) {
+  return addValues(left, negateValue(right));
+}
+
+function multiplyValues(left, right) {
+  const leftParts = toBigMParts(left);
+  const rightParts = toBigMParts(right);
+
+  if (Math.abs(leftParts.bigM) > EPSILON && Math.abs(rightParts.bigM) > EPSILON) {
+    throw new Error("No se admite multiplicar dos expresiones con M.");
+  }
+
+  return normalizeBigMValue({
+    constant: leftParts.constant * rightParts.constant,
+    bigM: (leftParts.bigM * rightParts.constant) + (rightParts.bigM * leftParts.constant)
+  });
+}
+
+function divideValueByScalar(value, scalar) {
+  if (Math.abs(scalar) < EPSILON) {
+    throw new Error("No se puede dividir por cero.");
+  }
+
+  const parts = toBigMParts(value);
+  return normalizeBigMValue({
+    constant: parts.constant / scalar,
+    bigM: parts.bigM / scalar
+  });
+}
+
+function compareValues(left, right = 0) {
+  if (
+    isExactRationalValue(left) ||
+    isExactBigMValue(left) ||
+    isExactRationalValue(right) ||
+    isExactBigMValue(right)
+  ) {
+    const leftParts = toExactBigMParts(left);
+    const rightParts = toExactBigMParts(right);
+
+    if (leftParts.bigM.numerator * rightParts.bigM.denominator < rightParts.bigM.numerator * leftParts.bigM.denominator) {
+      return -1;
+    }
+
+    if (leftParts.bigM.numerator * rightParts.bigM.denominator > rightParts.bigM.numerator * leftParts.bigM.denominator) {
+      return 1;
+    }
+
+    if (leftParts.constant.numerator * rightParts.constant.denominator < rightParts.constant.numerator * leftParts.constant.denominator) {
+      return -1;
+    }
+
+    if (leftParts.constant.numerator * rightParts.constant.denominator > rightParts.constant.numerator * leftParts.constant.denominator) {
+      return 1;
+    }
+
+    return 0;
+  }
+
+  const leftParts = toBigMParts(left);
+  const rightParts = toBigMParts(right);
+
+  if (leftParts.bigM < rightParts.bigM - EPSILON) {
+    return -1;
+  }
+
+  if (leftParts.bigM > rightParts.bigM + EPSILON) {
+    return 1;
+  }
+
+  if (leftParts.constant < rightParts.constant - EPSILON) {
+    return -1;
+  }
+
+  if (leftParts.constant > rightParts.constant + EPSILON) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function isNegativeValue(value) {
+  return compareValues(value, 0) < 0;
+}
+
+function formatBigMValue(value) {
+  const parts = toBigMParts(value);
+  const chunks = [];
+
+  if (Math.abs(parts.bigM) > EPSILON) {
+    const absBigM = Math.abs(parts.bigM);
+    const coefficient = Math.abs(absBigM - 1) < EPSILON ? "" : formatDisplayNumber(absBigM);
+    chunks.push(`${parts.bigM < 0 ? "-" : ""}${coefficient}${BIG_M_SYMBOL}`);
+  }
+
+  if (Math.abs(parts.constant) > EPSILON || !chunks.length) {
+    const formattedConstant = formatDisplayNumber(Math.abs(parts.constant));
+
+    if (!chunks.length) {
+      chunks.push(parts.constant < 0 ? `-${formattedConstant}` : formattedConstant);
+    } else {
+      chunks.push(`${parts.constant < 0 ? "-" : "+"}${formattedConstant}`);
+    }
+  }
+
+  return chunks.join("");
+}
+
+function toExactBigMParts(value) {
+  if (isExactBigMValue(value)) {
+    return {
+      constant: exactRationalFromNumber(value.constant),
+      bigM: exactRationalFromNumber(value.bigM)
+    };
+  }
+
+  if (isBigMValue(value)) {
+    return {
+      constant: exactRationalFromNumber(value.constant),
+      bigM: exactRationalFromNumber(value.bigM)
+    };
+  }
+
+  return {
+    constant: exactRationalFromNumber(value),
+    bigM: createExactRational(0, 1)
+  };
+}
+
+function normalizeExactValue(value) {
+  const parts = toExactBigMParts(value);
+
+  if (exactIsZeroRational(parts.bigM)) {
+    return exactRationalFromNumber(parts.constant);
+  }
+
+  return parts;
+}
+
+function cloneExactValue(value) {
+  if (isExactBigMValue(value)) {
+    return {
+      constant: exactRationalFromNumber(value.constant),
+      bigM: exactRationalFromNumber(value.bigM)
+    };
+  }
+
+  return exactRationalFromNumber(value);
+}
+
+function exactAddValue(left, right) {
+  const first = toExactBigMParts(left);
+  const second = toExactBigMParts(right);
+
+  return normalizeExactValue({
+    constant: exactAddRational(first.constant, second.constant),
+    bigM: exactAddRational(first.bigM, second.bigM)
+  });
+}
+
+function exactNegateValue(value) {
+  const parts = toExactBigMParts(value);
+
+  return normalizeExactValue({
+    constant: createExactRational(parts.constant.numerator * -1, parts.constant.denominator),
+    bigM: createExactRational(parts.bigM.numerator * -1, parts.bigM.denominator)
+  });
+}
+
+function exactSubtractValue(left, right) {
+  return exactAddValue(left, exactNegateValue(right));
+}
+
+function exactMultiplyValue(left, right) {
+  const first = toExactBigMParts(left);
+  const second = toExactBigMParts(right);
+
+  if (!exactIsZeroRational(first.bigM) && !exactIsZeroRational(second.bigM)) {
+    throw new Error("No se admite multiplicar dos expresiones exactas con M.");
+  }
+
+  return normalizeExactValue({
+    constant: exactMultiplyRational(first.constant, second.constant),
+    bigM: exactAddRational(
+      exactMultiplyRational(first.bigM, second.constant),
+      exactMultiplyRational(second.bigM, first.constant)
+    )
+  });
+}
+
+function exactDivideValueByScalar(value, scalar) {
+  const parts = toExactBigMParts(value);
+  const divisor = exactRationalFromNumber(scalar);
+
+  if (exactIsZeroRational(divisor)) {
+    throw new Error("No se puede dividir por cero.");
+  }
+
+  return normalizeExactValue({
+    constant: exactDivideRational(parts.constant, divisor),
+    bigM: exactDivideRational(parts.bigM, divisor)
+  });
+}
+
+function exactCompareValueToZero(value) {
+  const parts = toExactBigMParts(value);
+
+  if (parts.bigM.numerator < 0) {
+    return -1;
+  }
+
+  if (parts.bigM.numerator > 0) {
+    return 1;
+  }
+
+  if (parts.constant.numerator < 0) {
+    return -1;
+  }
+
+  if (parts.constant.numerator > 0) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function formatExactBigMValue(value) {
+  const parts = toExactBigMParts(value);
+  const chunks = [];
+
+  if (!exactIsZeroRational(parts.bigM)) {
+    const sign = parts.bigM.numerator < 0 ? "-" : "";
+    const absoluteBigM = createExactRational(Math.abs(parts.bigM.numerator), parts.bigM.denominator);
+    const coefficient = absoluteBigM.numerator === absoluteBigM.denominator ? "" : formatExactRational(absoluteBigM);
+    chunks.push(`${sign}${coefficient}${BIG_M_SYMBOL}`);
+  }
+
+  if (!exactIsZeroRational(parts.constant) || !chunks.length) {
+    const sign = parts.constant.numerator < 0 ? "-" : "+";
+    const absoluteConstant = createExactRational(Math.abs(parts.constant.numerator), parts.constant.denominator);
+    const formattedConstant = formatExactRational(absoluteConstant);
+
+    if (!chunks.length) {
+      chunks.push(parts.constant.numerator < 0 ? `-${formattedConstant}` : formattedConstant);
+    } else {
+      chunks.push(`${sign}${formattedConstant}`);
+    }
+  }
+
+  return chunks.join("");
+}
+
+function formatValue(value) {
+  if (isExactBigMValue(value)) {
+    return formatExactBigMValue(value);
+  }
+
+  if (isExactRationalValue(value)) {
+    return formatExactRational(value);
+  }
+
+  return isBigMValue(value) ? formatBigMValue(value) : formatDisplayNumber(value);
 }
 
 function formatProductFactor(value) {
-  return value < -EPSILON
-    ? `(${formatNumber(value)})`
-    : formatNumber(value);
+  const isNegative = isExactBigMValue(value) || isExactRationalValue(value)
+    ? exactCompareValueToZero(value) < 0
+    : compareValues(value, 0) < 0;
+
+  return isNegative
+    ? `(${formatValue(value)})`
+    : formatValue(value);
 }
 
 function renderTableValue(value) {
@@ -129,7 +735,7 @@ function renderCalcToken(text, tone) {
 
 function formatLinearExpression(coefficients) {
   return coefficients.map((value, index) => {
-    const absolute = `${formatNumber(Math.abs(value))}x${index + 1}`;
+    const absolute = `${formatDisplayNumber(Math.abs(value))}x${index + 1}`;
 
     if (index === 0) {
       return value < 0 ? `-${absolute}` : absolute;
@@ -140,7 +746,19 @@ function formatLinearExpression(coefficients) {
 }
 
 function formatConstraintLabel(constraint, rowIndex) {
-  return `R${rowIndex + 1}: ${formatLinearExpression(constraint.coefficients)} ${constraint.relation} ${formatNumber(constraint.rhs)}`;
+  return `R${rowIndex + 1}: ${formatLinearExpression(constraint.coefficients)} ${constraint.relation} ${formatDisplayNumber(constraint.rhs)}`;
+}
+
+function formatDisplayVariableName(label, columnIndex = null) {
+  if (columnIndex != null) {
+    return `x${columnIndex + 1}`;
+  }
+
+  return label;
+}
+
+function isArtificialVariableName(label) {
+  return /^mu\d+$/i.test(label);
 }
 
 function escapeHtml(value) {
@@ -226,11 +844,18 @@ function updateCompactInputWidths(root = simplexForm) {
 }
 
 function bumpCompactInput(input, delta) {
-  const isDimensionInput = input === variableCountInput || input === constraintCountInput;
-  const currentValue = isDimensionInput ? clampDimension(input.value) : parseNumericValue(input.value);
-  const nextValue = isDimensionInput
+  const isSimplexDimensionInput = input === variableCountInput || input === constraintCountInput;
+  const isTransportDimensionInput = input === transportOriginCountInput || input === transportDestinationCountInput;
+  const currentValue = isSimplexDimensionInput
+    ? clampDimension(input.value)
+    : isTransportDimensionInput
+      ? clampTransportDimension(input.value)
+      : parseNumericValue(input.value);
+  const nextValue = isSimplexDimensionInput
     ? clampDimension(currentValue + delta)
-    : Math.round((currentValue + delta) * 1000) / 1000;
+    : isTransportDimensionInput
+      ? clampTransportDimension(currentValue + delta)
+      : Math.round((currentValue + delta) * 1000) / 1000;
 
   input.value = formatNumber(nextValue);
   updateCompactInputWidth(input);
@@ -245,20 +870,28 @@ function renderObjectiveToggle() {
   objectiveToggle.title = isMinimization ? "Cambiar a maximizar" : "Cambiar a minimizar";
 }
 
+function renderDisplayModeToggle() {
+  displayModeButtons.forEach((button) => {
+    const isActive = button.dataset.displayMode === state.numberFormat;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
 function renderObjectiveExpression() {
   const prefix = state.objectiveType === "max" ? "Max Z =" : "Min Z =";
   const terms = state.objectiveCoefficients.map((coefficient, index) => `
     <span class="term">
       ${renderCompactInput({
-        value: coefficient,
-        incrementLabel: `Aumentar coeficiente de x${index + 1} en la funcion objetivo`,
-        decrementLabel: `Disminuir coeficiente de x${index + 1} en la funcion objetivo`,
-        attributes: {
-          "data-scope": "objective",
-          "data-index": index,
-          "aria-label": `Coeficiente de x${index + 1} en la funcion objetivo`
-        }
-      })}
+    value: coefficient,
+    incrementLabel: `Aumentar coeficiente de x${index + 1} en la funcion objetivo`,
+    decrementLabel: `Disminuir coeficiente de x${index + 1} en la funcion objetivo`,
+    attributes: {
+      "data-scope": "objective",
+      "data-index": index,
+      "aria-label": `Coeficiente de x${index + 1} en la funcion objetivo`
+    }
+  })}
       <span class="term-label">x${index + 1}</span>
     </span>
     ${index < state.variableCount - 1 ? '<span class="math-token">+</span>' : ""}
@@ -277,16 +910,16 @@ function renderConstraintRows() {
     const terms = constraint.coefficients.map((coefficient, columnIndex) => `
       <span class="term">
         ${renderCompactInput({
-          value: coefficient,
-          incrementLabel: `Aumentar coeficiente de x${columnIndex + 1} en la restriccion ${rowIndex + 1}`,
-          decrementLabel: `Disminuir coeficiente de x${columnIndex + 1} en la restriccion ${rowIndex + 1}`,
-          attributes: {
-            "data-scope": "constraint",
-            "data-row": rowIndex,
-            "data-index": columnIndex,
-            "aria-label": `Coeficiente de x${columnIndex + 1} en la restriccion ${rowIndex + 1}`
-          }
-        })}
+      value: coefficient,
+      incrementLabel: `Aumentar coeficiente de x${columnIndex + 1} en la restriccion ${rowIndex + 1}`,
+      decrementLabel: `Disminuir coeficiente de x${columnIndex + 1} en la restriccion ${rowIndex + 1}`,
+      attributes: {
+        "data-scope": "constraint",
+        "data-row": rowIndex,
+        "data-index": columnIndex,
+        "aria-label": `Coeficiente de x${columnIndex + 1} en la restriccion ${rowIndex + 1}`
+      }
+    })}
         <span class="term-label">x${columnIndex + 1}</span>
       </span>
       ${columnIndex < state.variableCount - 1 ? '<span class="math-token">+</span>' : ""}
@@ -308,16 +941,16 @@ function renderConstraintRows() {
         </button>
         <span class="rhs-control">
           ${renderCompactInput({
-            value: constraint.rhs,
-            inputClass: "rhs-input",
-            incrementLabel: `Aumentar termino independiente de la restriccion ${rowIndex + 1}`,
-            decrementLabel: `Disminuir termino independiente de la restriccion ${rowIndex + 1}`,
-            attributes: {
-              "data-scope": "rhs",
-              "data-row": rowIndex,
-              "aria-label": `Termino independiente de la restriccion ${rowIndex + 1}`
-            }
-          })}
+      value: constraint.rhs,
+      inputClass: "rhs-input",
+      incrementLabel: `Aumentar termino independiente de la restriccion ${rowIndex + 1}`,
+      decrementLabel: `Disminuir termino independiente de la restriccion ${rowIndex + 1}`,
+      attributes: {
+        "data-scope": "rhs",
+        "data-row": rowIndex,
+        "aria-label": `Termino independiente de la restriccion ${rowIndex + 1}`
+      }
+    })}
         </span>
       </div>
     `;
@@ -395,14 +1028,13 @@ function buildStandardForm(model) {
       surplusCount += 1;
       const surplusColumn = addColumn(`e${surplusCount}`);
       rows[rowIndex][surplusColumn] = -1;
+    }
+  });
+
+  model.constraints.forEach((constraint, rowIndex) => {
+    if (constraint.relation === ">=" || constraint.relation === "=") {
       artificialCount += 1;
-      const artificialColumn = addColumn(`a${artificialCount}`);
-      rows[rowIndex][artificialColumn] = 1;
-      basis[rowIndex] = artificialColumn;
-      artificialColumns.push(artificialColumn);
-    } else {
-      artificialCount += 1;
-      const artificialColumn = addColumn(`a${artificialCount}`);
+      const artificialColumn = addColumn(`mu${artificialCount}`);
       rows[rowIndex][artificialColumn] = 1;
       basis[rowIndex] = artificialColumn;
       artificialColumns.push(artificialColumn);
@@ -423,15 +1055,18 @@ function buildObjectiveRow(objectiveCoefficients, basis, constraintRows) {
   const objectiveRow = Array.from({ length: objectiveCoefficients.length + 1 }, () => 0);
 
   for (let columnIndex = 0; columnIndex < objectiveCoefficients.length; columnIndex += 1) {
-    objectiveRow[columnIndex] = -objectiveCoefficients[columnIndex];
+    objectiveRow[columnIndex] = negateValue(objectiveCoefficients[columnIndex] ?? 0);
   }
 
   basis.forEach((basisColumn, rowIndex) => {
     const basisWeight = objectiveCoefficients[basisColumn] ?? 0;
 
-    if (Math.abs(basisWeight) > EPSILON) {
+    if (!isZeroValue(basisWeight)) {
       for (let columnIndex = 0; columnIndex < objectiveRow.length; columnIndex += 1) {
-        objectiveRow[columnIndex] += basisWeight * constraintRows[rowIndex][columnIndex];
+        objectiveRow[columnIndex] = addValues(
+          objectiveRow[columnIndex],
+          multiplyValues(basisWeight, constraintRows[rowIndex][columnIndex])
+        );
       }
     }
   });
@@ -443,19 +1078,78 @@ function cleanNumber(value) {
   return Math.abs(value) < EPSILON ? 0 : value;
 }
 
+function cleanCellValue(value) {
+  return normalizeBigMValue(value);
+}
+
 function cleanRow(row) {
-  return row.map((value) => cleanNumber(value));
+  return row.map((value) => cleanCellValue(value));
 }
 
 function cloneMatrix(matrix) {
   return matrix.map((row) => [...row]);
 }
 
-function cloneTableau(tableau) {
-  return tableau.map((row) => cleanRow([...row]));
+function cloneExactMatrix(matrix) {
+  return matrix.map((row) => row.map((value) => cloneExactValue(value)));
 }
 
-function captureSnapshot({ phase, title, note, variableNames, basis, tableau, pivot, objectiveCoefficients }) {
+function cloneTableau(tableau) {
+  return tableau.map((row) => cleanRow(row.map((value) => cloneCellValue(value))));
+}
+
+function buildExactObjectiveRow(objectiveCoefficients, basis, constraintRows) {
+  const objectiveRow = Array.from({ length: objectiveCoefficients.length + 1 }, () => createExactRational(0, 1));
+
+  for (let columnIndex = 0; columnIndex < objectiveCoefficients.length; columnIndex += 1) {
+    objectiveRow[columnIndex] = exactNegateValue(objectiveCoefficients[columnIndex] ?? createExactRational(0, 1));
+  }
+
+  basis.forEach((basisColumn, rowIndex) => {
+    const basisWeight = objectiveCoefficients[basisColumn] ?? createExactRational(0, 1);
+
+    if (exactCompareValueToZero(basisWeight) !== 0) {
+      for (let columnIndex = 0; columnIndex < objectiveRow.length; columnIndex += 1) {
+        objectiveRow[columnIndex] = exactAddValue(
+          objectiveRow[columnIndex],
+          exactMultiplyValue(basisWeight, constraintRows[rowIndex][columnIndex])
+        );
+      }
+    }
+  });
+
+  return objectiveRow.map((value) => normalizeExactValue(value));
+}
+
+function pivotExactMatrix(matrix, pivotRowIndex, pivotColumnIndex) {
+  const pivotValue = matrix[pivotRowIndex][pivotColumnIndex];
+  const totalColumns = matrix[pivotRowIndex].length;
+
+  for (let columnIndex = 0; columnIndex < totalColumns; columnIndex += 1) {
+    matrix[pivotRowIndex][columnIndex] = exactDivideValueByScalar(matrix[pivotRowIndex][columnIndex], pivotValue);
+  }
+
+  for (let rowIndex = 0; rowIndex < matrix.length; rowIndex += 1) {
+    if (rowIndex === pivotRowIndex) {
+      continue;
+    }
+
+    const factor = matrix[rowIndex][pivotColumnIndex];
+
+    if (exactCompareValueToZero(factor) === 0) {
+      continue;
+    }
+
+    for (let columnIndex = 0; columnIndex < totalColumns; columnIndex += 1) {
+      matrix[rowIndex][columnIndex] = exactSubtractValue(
+        matrix[rowIndex][columnIndex],
+        exactMultiplyValue(factor, matrix[pivotRowIndex][columnIndex])
+      );
+    }
+  }
+}
+
+function captureSnapshot({ phase, title, note, variableNames, basis, tableau, displayTableau, pivot, objectiveCoefficients, displayObjectiveCoefficients }) {
   return {
     phase,
     title,
@@ -463,7 +1157,9 @@ function captureSnapshot({ phase, title, note, variableNames, basis, tableau, pi
     variableNames: [...variableNames],
     basis: [...basis],
     tableau: cloneTableau(tableau),
-    objectiveCoefficients: [...objectiveCoefficients],
+    displayTableau: cloneExactMatrix(displayTableau),
+    objectiveCoefficients: objectiveCoefficients.map((value) => cloneCellValue(value)),
+    displayObjectiveCoefficients: displayObjectiveCoefficients.map((value) => cloneExactValue(value)),
     pivot: pivot ? { ...pivot } : null
   };
 }
@@ -476,27 +1172,36 @@ function buildPreviousTableCalculation(previousSnapshot, currentSnapshot, target
   const pivotRow = currentSnapshot.pivot.row;
   const pivotColumn = currentSnapshot.pivot.column;
   const pivotValue = previousSnapshot.tableau[pivotRow]?.[pivotColumn];
-  const targetValue = previousSnapshot.tableau[targetRow]?.[targetColumn];
-  const pivotRowValue = previousSnapshot.tableau[pivotRow]?.[targetColumn];
+  const previousDisplayTableau = previousSnapshot.displayTableau ?? previousSnapshot.tableau;
+  const targetValue = previousDisplayTableau[targetRow]?.[targetColumn];
+  const pivotRowValue = previousDisplayTableau[pivotRow]?.[targetColumn];
+  const pivotValueDisplay = previousDisplayTableau[pivotRow]?.[pivotColumn];
+  const isSupportedDisplayValue = (value) => (
+    Number.isFinite(value) ||
+    isBigMValue(value) ||
+    isExactRationalValue(value) ||
+    isExactBigMValue(value)
+  );
 
   if (
     !Number.isFinite(pivotValue) ||
-    !Number.isFinite(targetValue) ||
-    !Number.isFinite(pivotRowValue)
+    !isSupportedDisplayValue(targetValue) ||
+    !isSupportedDisplayValue(pivotRowValue) ||
+    !isSupportedDisplayValue(pivotValueDisplay)
   ) {
     return null;
   }
 
   if (targetRow === pivotRow) {
-    const shortDivision = `${formatProductFactor(targetValue)} / ${formatProductFactor(pivotValue)}`;
+    const shortDivision = `${formatProductFactor(targetValue)} / ${formatProductFactor(pivotValueDisplay)}`;
 
     return {
       expression: targetColumn === previousSnapshot.tableau[pivotRow].length - 1
         ? shortDivision
         : `anterior / pivote = ${shortDivision}`,
       expressionHtml: targetColumn === previousSnapshot.tableau[pivotRow].length - 1
-        ? `${renderCalcToken(formatProductFactor(targetValue), "primary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`
-        : `anterior / pivote = ${renderCalcToken(formatProductFactor(targetValue), "primary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`,
+        ? `${renderCalcToken(formatProductFactor(targetValue), "primary")} / ${renderCalcToken(formatProductFactor(pivotValueDisplay), "pivot")}`
+        : `anterior / pivote = ${renderCalcToken(formatProductFactor(targetValue), "primary")} / ${renderCalcToken(formatProductFactor(pivotValueDisplay), "pivot")}`,
       highlights: [
         { row: pivotRow, column: targetColumn, tone: "primary" },
         { row: pivotRow, column: pivotColumn, tone: "pivot" }
@@ -504,15 +1209,15 @@ function buildPreviousTableCalculation(previousSnapshot, currentSnapshot, target
     };
   }
 
-  const rowFactor = previousSnapshot.tableau[targetRow]?.[pivotColumn];
+  const rowFactor = previousDisplayTableau[targetRow]?.[pivotColumn];
 
-  if (!Number.isFinite(rowFactor)) {
+  if (!isSupportedDisplayValue(rowFactor)) {
     return null;
   }
 
   return {
-    expression: `c - a*b/p = ${formatProductFactor(targetValue)} - ${formatProductFactor(rowFactor)} * ${formatProductFactor(pivotRowValue)} / ${formatProductFactor(pivotValue)}`,
-    expressionHtml: `c - a*b/p = ${renderCalcToken(formatProductFactor(targetValue), "primary")} - ${renderCalcToken(formatProductFactor(rowFactor), "factor")} * ${renderCalcToken(formatProductFactor(pivotRowValue), "secondary")} / ${renderCalcToken(formatProductFactor(pivotValue), "pivot")}`,
+    expression: `c - a*b/p = ${formatProductFactor(targetValue)} - ${formatProductFactor(rowFactor)} * ${formatProductFactor(pivotRowValue)} / ${formatProductFactor(pivotValueDisplay)}`,
+    expressionHtml: `c - a*b/p = ${renderCalcToken(formatProductFactor(targetValue), "primary")} - ${renderCalcToken(formatProductFactor(rowFactor), "factor")} * ${renderCalcToken(formatProductFactor(pivotRowValue), "secondary")} / ${renderCalcToken(formatProductFactor(pivotValueDisplay), "pivot")}`,
     highlights: [
       { row: targetRow, column: targetColumn, tone: "primary" },
       { row: targetRow, column: pivotColumn, tone: "factor" },
@@ -524,11 +1229,56 @@ function buildPreviousTableCalculation(previousSnapshot, currentSnapshot, target
 
 function findEnteringColumn(objectiveRow) {
   let selectedColumn = -1;
-  let mostNegativeValue = -EPSILON;
+  let mostNegativeValue = null;
 
   for (let columnIndex = 0; columnIndex < objectiveRow.length - 1; columnIndex += 1) {
-    if (objectiveRow[columnIndex] < mostNegativeValue) {
+    if (
+      isNegativeValue(objectiveRow[columnIndex]) &&
+      (mostNegativeValue == null || compareValues(objectiveRow[columnIndex], mostNegativeValue) < 0)
+    ) {
       mostNegativeValue = objectiveRow[columnIndex];
+      selectedColumn = columnIndex;
+    }
+  }
+
+  return selectedColumn;
+}
+
+function findDisplayEnteringColumn(objectiveRow, objectiveType, excludedColumns = new Set()) {
+  if (objectiveType !== "min") {
+    let selectedColumn = -1;
+    let mostNegativeValue = null;
+
+    for (let columnIndex = 0; columnIndex < objectiveRow.length - 1; columnIndex += 1) {
+      if (excludedColumns.has(columnIndex)) {
+        continue;
+      }
+
+      if (
+        isNegativeValue(objectiveRow[columnIndex]) &&
+        (mostNegativeValue == null || compareValues(objectiveRow[columnIndex], mostNegativeValue) < 0)
+      ) {
+        mostNegativeValue = objectiveRow[columnIndex];
+        selectedColumn = columnIndex;
+      }
+    }
+
+    return selectedColumn;
+  }
+
+  let selectedColumn = -1;
+  let mostPositiveValue = null;
+
+  for (let columnIndex = 0; columnIndex < objectiveRow.length - 1; columnIndex += 1) {
+    if (excludedColumns.has(columnIndex)) {
+      continue;
+    }
+
+    if (
+      compareValues(objectiveRow[columnIndex], 0) > 0 &&
+      (mostPositiveValue == null || compareValues(objectiveRow[columnIndex], mostPositiveValue) > 0)
+    ) {
+      mostPositiveValue = objectiveRow[columnIndex];
       selectedColumn = columnIndex;
     }
   }
@@ -565,7 +1315,7 @@ function pivotMatrix(matrix, pivotRowIndex, pivotColumnIndex) {
   const totalColumns = matrix[pivotRowIndex].length;
 
   for (let columnIndex = 0; columnIndex < totalColumns; columnIndex += 1) {
-    matrix[pivotRowIndex][columnIndex] /= pivotValue;
+    matrix[pivotRowIndex][columnIndex] = divideValueByScalar(matrix[pivotRowIndex][columnIndex], pivotValue);
   }
 
   for (let rowIndex = 0; rowIndex < matrix.length; rowIndex += 1) {
@@ -575,12 +1325,15 @@ function pivotMatrix(matrix, pivotRowIndex, pivotColumnIndex) {
 
     const factor = matrix[rowIndex][pivotColumnIndex];
 
-    if (Math.abs(factor) <= EPSILON) {
+    if (isZeroValue(factor)) {
       continue;
     }
 
     for (let columnIndex = 0; columnIndex < totalColumns; columnIndex += 1) {
-      matrix[rowIndex][columnIndex] -= factor * matrix[pivotRowIndex][columnIndex];
+      matrix[rowIndex][columnIndex] = subtractValues(
+        matrix[rowIndex][columnIndex],
+        multiplyValues(factor, matrix[pivotRowIndex][columnIndex])
+      );
     }
   }
 
@@ -589,8 +1342,9 @@ function pivotMatrix(matrix, pivotRowIndex, pivotColumnIndex) {
   }
 }
 
-function runSimplexPhase({ phase, variableNames, basis, constraintRows, objectiveCoefficients, snapshots }) {
+function runSimplexPhase({ phase, variableNames, basis, constraintRows, exactConstraintRows, objectiveCoefficients, exactObjectiveCoefficients, snapshots }) {
   const tableau = [...cloneMatrix(constraintRows), buildObjectiveRow(objectiveCoefficients, basis, constraintRows)];
+  const exactTableau = [...cloneExactMatrix(exactConstraintRows), buildExactObjectiveRow(exactObjectiveCoefficients, basis, exactConstraintRows)];
   const initialSnapshot = captureSnapshot({
     phase,
     title: "Tabla inicial",
@@ -598,7 +1352,10 @@ function runSimplexPhase({ phase, variableNames, basis, constraintRows, objectiv
     variableNames,
     basis,
     tableau,
+    displayTableau: exactTableau,
     objectiveCoefficients
+    ,
+    displayObjectiveCoefficients: exactObjectiveCoefficients
   });
   snapshots.push(initialSnapshot);
 
@@ -612,6 +1369,7 @@ function runSimplexPhase({ phase, variableNames, basis, constraintRows, objectiv
       return {
         status: "optimal",
         tableau,
+        exactTableau,
         basis
       };
     }
@@ -622,6 +1380,7 @@ function runSimplexPhase({ phase, variableNames, basis, constraintRows, objectiv
       return {
         status: "unbounded",
         tableau,
+        exactTableau,
         basis,
         enteringVariable: variableNames[enteringColumn]
       };
@@ -631,11 +1390,12 @@ function runSimplexPhase({ phase, variableNames, basis, constraintRows, objectiv
     const currentSnapshot = snapshots[snapshots.length - 1];
 
     if (currentSnapshot) {
-      currentSnapshot.note = `Entra ${variableNames[enteringColumn]} y sale ${leavingVariable}.`;
+      currentSnapshot.note = `Entra ${formatDisplayVariableName(variableNames[enteringColumn], enteringColumn)} y sale ${formatDisplayVariableName(leavingVariable, basis[leavingRow])}.`;
     }
 
     iteration += 1;
     pivotMatrix(tableau, leavingRow, enteringColumn);
+    pivotExactMatrix(exactTableau, leavingRow, enteringColumn);
     basis[leavingRow] = enteringColumn;
 
     snapshots.push(captureSnapshot({
@@ -645,7 +1405,9 @@ function runSimplexPhase({ phase, variableNames, basis, constraintRows, objectiv
       variableNames,
       basis,
       tableau,
+      displayTableau: exactTableau,
       objectiveCoefficients,
+      displayObjectiveCoefficients: exactObjectiveCoefficients,
       pivot: {
         row: leavingRow,
         column: enteringColumn,
@@ -732,6 +1494,19 @@ function extractSolution(tableau, basis, originalVariableCount) {
   });
 
   return solution.map((value) => cleanNumber(value));
+}
+
+function extractExactSolution(tableau, basis, originalVariableCount) {
+  const solution = Array.from({ length: originalVariableCount }, () => createExactRational(0, 1));
+  const rhsColumn = tableau[0].length - 1;
+
+  basis.forEach((basisColumn, rowIndex) => {
+    if (basisColumn >= 0 && basisColumn < originalVariableCount) {
+      solution[basisColumn] = cloneExactValue(tableau[rowIndex][rhsColumn]);
+    }
+  });
+
+  return solution;
 }
 
 function getPointCoordinate(point, index) {
@@ -1343,29 +2118,29 @@ function buildGraphData2D(result) {
     }
   });
 
-  const workingXMax = niceAxisLimit(Math.max(...xCandidateValues.filter((value) => Number.isFinite(value) && value >= 0)));
-  const workingYMax = niceAxisLimit(Math.max(...yCandidateValues.filter((value) => Number.isFinite(value) && value >= 0)));
+  const workingAxisMax = niceAxisLimit(Math.max(
+    ...xCandidateValues.filter((value) => Number.isFinite(value) && value >= 0),
+    ...yCandidateValues.filter((value) => Number.isFinite(value) && value >= 0)
+  ));
   let region = [
     { x: 0, y: 0 },
-    { x: workingXMax, y: 0 },
-    { x: workingXMax, y: workingYMax },
-    { x: 0, y: workingYMax }
+    { x: workingAxisMax, y: 0 },
+    { x: workingAxisMax, y: workingAxisMax },
+    { x: 0, y: workingAxisMax }
   ];
 
   constraints.forEach((constraint) => {
     region = clipPolygonWithConstraint(region, constraint);
   });
 
-  const xMax = fitAxisLimit(Math.max(
+  const regionAxisMax = fitAxisLimit(Math.max(
     1,
     optimum.x,
-    ...region.map((point) => point.x).filter((value) => Number.isFinite(value) && value >= 0)
-  ));
-  const yMax = fitAxisLimit(Math.max(
-    1,
     optimum.y,
+    ...region.map((point) => point.x).filter((value) => Number.isFinite(value) && value >= 0),
     ...region.map((point) => point.y).filter((value) => Number.isFinite(value) && value >= 0)
   ));
+  const axisMax = Math.max(workingAxisMax, regionAxisMax);
 
   const bindingConstraints = constraints.filter((constraint) => (
     Math.abs(evaluateConstraint(constraint, optimum) - constraint.rhs) <= 1e-6
@@ -1384,21 +2159,21 @@ function buildGraphData2D(result) {
   const objectiveSegment = buildLineSegmentInBounds({
     coefficients: [state.objectiveCoefficients[0], state.objectiveCoefficients[1]],
     rhs: (state.objectiveCoefficients[0] * optimum.x) + (state.objectiveCoefficients[1] * optimum.y)
-  }, xMax, yMax);
+  }, axisMax, axisMax);
 
   return {
     type: "graph-2d",
     dimension: 2,
-    xMax,
-    yMax,
-    xTicks: getAxisTicks(xMax),
-    yTicks: getAxisTicks(yMax),
+    xMax: axisMax,
+    yMax: axisMax,
+    xTicks: getAxisTicks(axisMax),
+    yTicks: getAxisTicks(axisMax),
     optimum,
     region,
     objectiveSegment,
     constraints: constraints.map((constraint, index) => ({
       ...constraint,
-      segment: buildLineSegmentInBounds(constraint, xMax, yMax),
+      segment: buildLineSegmentInBounds(constraint, axisMax, axisMax),
       binding: bindingConstraints.some((item) => item.rowIndex === constraint.rowIndex),
       color: THEME.graphConstraintColors[index % THEME.graphConstraintColors.length]
     })),
@@ -1528,16 +2303,16 @@ function isSamePoint(pointA, pointB, dimension = state.variableCount) {
 
 function formatPointTuple(point, dimension = state.variableCount) {
   return Array.from({ length: dimension }, (_, index) => (
-    formatNumber(getPointCoordinate(point, index))
+    formatGraphNumber(getPointCoordinate(point, index))
   )).join(", ");
 }
 
 function buildPointAriaLabel(label, point, dimension = state.variableCount) {
   const coordinates = Array.from({ length: dimension }, (_, index) => (
-    `x${index + 1} = ${formatNumber(getPointCoordinate(point, index))}`
+    `x${index + 1} = ${formatGraphNumber(getPointCoordinate(point, index))}`
   )).join(", ");
 
-  return `${label} | ${coordinates}, Z = ${formatNumber(getObjectiveValueForPoint(point, dimension))}`;
+  return `${label} | ${coordinates}, Z = ${formatGraphNumber(getObjectiveValueForPoint(point, dimension))}`;
 }
 
 function buildPointDataset(label, point, dimension = state.variableCount, type = "vertex") {
@@ -1545,10 +2320,10 @@ function buildPointDataset(label, point, dimension = state.variableCount, type =
     label,
     type,
     dimension,
-    objective: formatNumber(getObjectiveValueForPoint(point, dimension)),
+    objective: formatGraphNumber(getObjectiveValueForPoint(point, dimension)),
     coordinates: Array.from({ length: dimension }, (_, index) => ({
       label: `X${index + 1}`,
-      value: formatNumber(getPointCoordinate(point, index))
+      value: formatGraphNumber(getPointCoordinate(point, index))
     })),
     aria: buildPointAriaLabel(label, point, dimension)
   };
@@ -1641,10 +2416,20 @@ function renderGraph2D(graphData) {
   };
   const usableWidth = width - padding.left - padding.right;
   const usableHeight = height - padding.top - padding.bottom;
+  const uniformScale = Math.min(
+    usableWidth / Math.max(graphData.xMax, EPSILON),
+    usableHeight / Math.max(graphData.yMax, EPSILON)
+  );
+  const plotWidth = graphData.xMax * uniformScale;
+  const plotHeight = graphData.yMax * uniformScale;
+  const plotLeft = padding.left + ((usableWidth - plotWidth) / 2);
+  const plotRight = plotLeft + plotWidth;
+  const plotBottom = height - padding.bottom - ((usableHeight - plotHeight) / 2);
+  const plotTop = plotBottom - plotHeight;
 
   const toSvgPoint = (point) => ({
-    x: padding.left + ((point.x / graphData.xMax) * usableWidth),
-    y: height - padding.bottom - ((point.y / graphData.yMax) * usableHeight)
+    x: plotLeft + (point.x * uniformScale),
+    y: plotBottom - (point.y * uniformScale)
   });
 
   const regionPoints = graphData.region.map(toSvgPoint);
@@ -1671,8 +2456,8 @@ function renderGraph2D(graphData) {
     const point = toSvgPoint({ x: tick, y: 0 });
 
     return `
-      <line x1="${point.x}" y1="${padding.top}" x2="${point.x}" y2="${height - padding.bottom}" stroke="${THEME.graphGrid}" stroke-dasharray="3 6" />
-      <text x="${point.x}" y="${height - padding.bottom + 26}" text-anchor="middle" fill="${THEME.graphLabel}" font-size="13">${formatNumber(tick)}</text>
+      <line x1="${point.x}" y1="${plotTop}" x2="${point.x}" y2="${plotBottom}" stroke="${THEME.graphGrid}" stroke-dasharray="3 6" />
+      <text x="${point.x}" y="${plotBottom + 26}" text-anchor="middle" fill="${THEME.graphLabel}" font-size="13">${formatGraphNumber(tick)}</text>
     `;
   }).join("");
 
@@ -1680,8 +2465,8 @@ function renderGraph2D(graphData) {
     const point = toSvgPoint({ x: 0, y: tick });
 
     return `
-      <line x1="${padding.left}" y1="${point.y}" x2="${width - padding.right}" y2="${point.y}" stroke="${THEME.graphGrid}" stroke-dasharray="3 6" />
-      <text x="${padding.left - 14}" y="${point.y + 5}" text-anchor="end" fill="${THEME.graphLabel}" font-size="13">${formatNumber(tick)}</text>
+      <line x1="${plotLeft}" y1="${point.y}" x2="${plotRight}" y2="${point.y}" stroke="${THEME.graphGrid}" stroke-dasharray="3 6" />
+      <text x="${plotLeft - 14}" y="${point.y + 5}" text-anchor="end" fill="${THEME.graphLabel}" font-size="13">${formatGraphNumber(tick)}</text>
     `;
   }).join("");
 
@@ -1756,8 +2541,8 @@ function renderGraph2D(graphData) {
           ${gridLinesX}
           ${gridLinesY}
 
-          <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" stroke="${THEME.graphAxis}" stroke-width="2.5" />
-          <line x1="${padding.left}" y1="${height - padding.bottom}" x2="${padding.left}" y2="${padding.top}" stroke="${THEME.graphAxis}" stroke-width="2.5" />
+          <line x1="${plotLeft}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" stroke="${THEME.graphAxis}" stroke-width="2.5" />
+          <line x1="${plotLeft}" y1="${plotBottom}" x2="${plotLeft}" y2="${plotTop}" stroke="${THEME.graphAxis}" stroke-width="2.5" />
 
           ${regionPolygon ? `<polygon points="${regionPolygon}" fill="${THEME.graphRegionFill}" stroke="${THEME.graphRegionStroke}" stroke-width="4"></polygon>` : ""}
           ${regionPolyline ? `<polyline points="${regionPolyline}" fill="none" stroke="${THEME.graphRegionStroke}" stroke-width="6" stroke-linecap="round"></polyline>` : ""}
@@ -1781,8 +2566,8 @@ function renderGraph2D(graphData) {
           ${renderVertexMarker(optimumData, optimumPoint, 10, "graph-vertex-optimum")}
           <text x="${optimumPoint.x + 14}" y="${optimumPoint.y - 14}" fill="${THEME.graphAxis}" font-size="15" font-weight="800">Optimo</text>
 
-          <text x="${width - padding.right + 4}" y="${height - padding.bottom + 8}" fill="${THEME.graphAxis}" font-size="15" font-weight="800">X1</text>
-          <text x="${padding.left - 6}" y="${padding.top - 6}" fill="${THEME.graphAxis}" font-size="15" font-weight="800">X2</text>
+          <text x="${plotRight + 4}" y="${plotBottom + 8}" fill="${THEME.graphAxis}" font-size="15" font-weight="800">X1</text>
+          <text x="${plotLeft - 6}" y="${plotTop - 6}" fill="${THEME.graphAxis}" font-size="15" font-weight="800">X2</text>
         </svg>
         ${buildGraphTooltipMarkup()}
       </div>
@@ -1876,7 +2661,7 @@ function renderGraph3D(graphData) {
         stroke-linecap="round"
       />
       <text x="${to.x + 10}" y="${to.y + (axis.label === "X3" ? -8 : 4)}" fill="${THEME.graphAxis}" font-size="16" font-weight="800">${axis.label}</text>
-      <text x="${to.x + 10}" y="${to.y + (axis.label === "X3" ? 12 : 22)}" fill="${THEME.graphLabel}" font-size="12">${formatNumber(axisMax)}</text>
+      <text x="${to.x + 10}" y="${to.y + (axis.label === "X3" ? 12 : 22)}" fill="${THEME.graphLabel}" font-size="12">${formatGraphNumber(axisMax)}</text>
     `;
   }).join("");
 
@@ -2586,87 +3371,69 @@ function solveModel() {
   const messages = [];
 
   if (standardForm.artificialColumns.length > 0) {
-    const phaseOneObjective = Array.from({ length: standardForm.variableNames.length }, () => 0);
+    const bigMObjective = Array.from({ length: standardForm.variableNames.length }, (_, columnIndex) => (
+      columnIndex < state.variableCount ? transformedObjective[columnIndex] : 0
+    ));
+    const exactBigMObjective = bigMObjective.map((value) => cloneExactValue(value));
+    const exactConstraintRows = cloneExactMatrix(standardForm.constraintRows);
+
     standardForm.artificialColumns.forEach((columnIndex) => {
-      phaseOneObjective[columnIndex] = -1;
+      bigMObjective[columnIndex] = { constant: 0, bigM: -1 };
+      exactBigMObjective[columnIndex] = normalizeExactValue({
+        constant: createExactRational(0, 1),
+        bigM: createExactRational(-1, 1)
+      });
     });
 
-    const phaseOneResult = runSimplexPhase({
-      phase: "Fase I",
+    const bigMResult = runSimplexPhase({
+      phase: "Metodo M",
       variableNames: [...standardForm.variableNames],
       basis: [...standardForm.basis],
       constraintRows: cloneMatrix(standardForm.constraintRows),
-      objectiveCoefficients: phaseOneObjective,
+      exactConstraintRows,
+      objectiveCoefficients: bigMObjective,
+      exactObjectiveCoefficients: exactBigMObjective,
       snapshots
     });
 
-    if (phaseOneResult.status === "unbounded") {
+    if (bigMResult.status === "unbounded") {
       return {
         status: "error",
-        reason: "La fase I quedo sin cota para la variable artificial seleccionada.",
+        reason: "El metodo M quedo sin cota para la variable seleccionada.",
         messages,
         snapshots
       };
     }
 
-    const phaseOneValue = phaseOneResult.tableau[phaseOneResult.tableau.length - 1].at(-1);
-
-    if (phaseOneValue < -EPSILON) {
-      messages.push("El problema es infactible: la suma de artificiales no pudo bajar a cero en la fase I.");
-      return {
-        status: "infeasible",
-        messages,
-        snapshots
-      };
-    }
-
-    const transition = removeArtificialColumns(
-      cloneMatrix(phaseOneResult.tableau.slice(0, -1)),
-      [...phaseOneResult.basis],
-      [...standardForm.variableNames],
-      standardForm.artificialColumns
-    );
-
-    if (transition.status !== "ok") {
-      messages.push("No fue posible eliminar todas las variables artificiales despues de la fase I.");
-      return {
-        status: "infeasible",
-        messages,
-        snapshots
-      };
-    }
-
-    messages.push("La fase I encontro una base factible y la app continuo automaticamente con la fase II.");
-
-    const phaseTwoObjective = Array.from({ length: transition.variableNames.length }, (_, columnIndex) => (
-      columnIndex < state.variableCount ? transformedObjective[columnIndex] : 0
+    const artificialInBasis = bigMResult.basis.some((basisColumn, rowIndex) => (
+      standardForm.artificialColumns.includes(basisColumn) &&
+      bigMResult.tableau[rowIndex].at(-1) > EPSILON
     ));
 
-    const phaseTwoResult = runSimplexPhase({
-      phase: "Fase II",
-      variableNames: transition.variableNames,
-      basis: transition.basis,
-      constraintRows: transition.constraintRows,
-      objectiveCoefficients: phaseTwoObjective,
-      snapshots
-    });
-
-    if (phaseTwoResult.status === "unbounded") {
-      messages.push(`La variable ${phaseTwoResult.enteringVariable} puede entrar pero no hay fila saliente positiva.`);
+    if (artificialInBasis) {
+      messages.push("El problema es infactible: quedaron variables artificiales activas al terminar el metodo M.");
       return {
-        status: "unbounded",
+        status: "infeasible",
         messages,
         snapshots
       };
     }
 
-    const transformedOptimum = phaseTwoResult.tableau[phaseTwoResult.tableau.length - 1].at(-1);
+    messages.push("Se agregaron variables artificiales (mu) y la tabla se resolvio con metodo M. La fila inferior usa la convencion Zj - Cj, por eso las artificiales aparecen con costo -M.");
+
+    const transformedOptimum = toBigMParts(bigMResult.tableau[bigMResult.tableau.length - 1].at(-1)).constant;
+    const exactTransformedOptimum = toExactBigMParts(bigMResult.exactTableau[bigMResult.exactTableau.length - 1].at(-1)).constant;
     const optimum = state.objectiveType === "max" ? transformedOptimum : transformedOptimum * -1;
+    const exactOptimum = state.objectiveType === "max"
+      ? exactTransformedOptimum
+      : createExactRational(exactTransformedOptimum.numerator * -1, exactTransformedOptimum.denominator);
 
     return {
       status: "optimal",
       optimum,
-      solution: extractSolution(phaseTwoResult.tableau, phaseTwoResult.basis, state.variableCount),
+      exactOptimum,
+      solution: extractSolution(bigMResult.tableau, bigMResult.basis, state.variableCount),
+      exactSolution: extractExactSolution(bigMResult.exactTableau, bigMResult.basis, state.variableCount),
       snapshots,
       messages
     };
@@ -2675,13 +3442,16 @@ function solveModel() {
   const phaseTwoObjective = Array.from({ length: standardForm.variableNames.length }, (_, columnIndex) => (
     columnIndex < state.variableCount ? transformedObjective[columnIndex] : 0
   ));
+  const exactPhaseTwoObjective = phaseTwoObjective.map((value) => cloneExactValue(value));
 
   const phaseTwoResult = runSimplexPhase({
     phase: "Fase II",
     variableNames: standardForm.variableNames,
     basis: [...standardForm.basis],
     constraintRows: cloneMatrix(standardForm.constraintRows),
+    exactConstraintRows: cloneExactMatrix(standardForm.constraintRows),
     objectiveCoefficients: phaseTwoObjective,
+    exactObjectiveCoefficients: exactPhaseTwoObjective,
     snapshots
   });
 
@@ -2695,12 +3465,18 @@ function solveModel() {
   }
 
   const transformedOptimum = phaseTwoResult.tableau[phaseTwoResult.tableau.length - 1].at(-1);
+  const exactTransformedOptimum = cloneExactValue(phaseTwoResult.exactTableau[phaseTwoResult.exactTableau.length - 1].at(-1));
   const optimum = state.objectiveType === "max" ? transformedOptimum : transformedOptimum * -1;
+  const exactOptimum = state.objectiveType === "max"
+    ? exactTransformedOptimum
+    : createExactRational(exactTransformedOptimum.numerator * -1, exactTransformedOptimum.denominator);
 
   return {
     status: "optimal",
     optimum,
+    exactOptimum,
     solution: extractSolution(phaseTwoResult.tableau, phaseTwoResult.basis, state.variableCount),
+    exactSolution: extractExactSolution(phaseTwoResult.exactTableau, phaseTwoResult.basis, state.variableCount),
     snapshots,
     messages
   };
@@ -2715,10 +3491,16 @@ function renderSummary(result) {
       : [];
 
   if (result.status === "optimal") {
-    const solutionPills = result.solution.map((value, index) => `
+    const solutionValues = state.numberFormat === "fraction" && Array.isArray(result.exactSolution)
+      ? result.exactSolution
+      : result.solution;
+    const optimumValue = state.numberFormat === "fraction" && result.exactOptimum
+      ? result.exactOptimum
+      : result.optimum;
+    const solutionPills = solutionValues.map((value, index) => `
       <span class="solution-pill">
         <strong>x${index + 1}</strong>
-        <span>${formatNumber(value)}</span>
+        <span>${formatValue(value)}</span>
       </span>
     `).join("");
 
@@ -2735,7 +3517,7 @@ function renderSummary(result) {
         </div>
         <div class="summary-block">
           <p class="summary-label">Valor optimo</p>
-          <p class="summary-value">${formatNumber(result.optimum)}</p>
+          <p class="summary-value">${formatValue(optimumValue)}</p>
         </div>
       </div>
       <div class="summary-block">
@@ -2770,50 +3552,88 @@ function renderSummary(result) {
 
 function buildTableMarkup(snapshot, previousSnapshot = null) {
   const objectiveRow = snapshot.tableau[snapshot.tableau.length - 1];
+  const displayTableau = snapshot.displayTableau ?? snapshot.tableau;
+  const displayObjectiveCoefficients = snapshot.displayObjectiveCoefficients ?? snapshot.objectiveCoefficients;
+  const displayObjectiveRowRaw = displayTableau[displayTableau.length - 1];
   const rhsColumnIndex = objectiveRow.length - 1;
-  const dataColumnWidth = "30px";
+  const dataColumnWidth = state.numberFormat === "fraction" ? "42px" : "30px";
   const guideColumnWidth = "22px";
   const buildFixedCol = (width) => `<col style="width:${width}">`;
-  const enteringColumn = findEnteringColumn(objectiveRow);
+  const displayObjectiveValue = (value) => {
+    if (state.objectiveType !== "min") {
+      return value;
+    }
+
+    return (isExactRationalValue(value) || isExactBigMValue(value))
+      ? exactNegateValue(value)
+      : negateValue(value);
+  };
+  const displayObjectiveRow = displayObjectiveRowRaw.map((value) => displayObjectiveValue(value));
+  const retiredArtificialColumns = new Set(
+    snapshot.variableNames
+      .map((label, columnIndex) => ({ label, columnIndex }))
+      .filter(({ label, columnIndex }) => isArtificialVariableName(label) && !snapshot.basis.includes(columnIndex))
+      .map(({ columnIndex }) => columnIndex)
+  );
+  const enteringColumn = findDisplayEnteringColumn(displayObjectiveRow, state.objectiveType, retiredArtificialColumns);
   const leavingRow = enteringColumn === -1 ? -1 : chooseLeavingRow(snapshot.tableau, enteringColumn);
   const ratios = enteringColumn === -1
     ? []
     : snapshot.tableau.slice(0, -1).map((row, rowIndex) => {
       const coefficient = row[enteringColumn];
       const rhs = row[rhsColumnIndex];
+      const displayCoefficient = displayTableau[rowIndex][enteringColumn];
+      const displayRhs = displayTableau[rowIndex][rhsColumnIndex];
       if (Math.abs(coefficient) < EPSILON) {
         if (Math.abs(rhs) < EPSILON) {
-          return { expression: `${formatNumber(rhs)} / ${formatNumber(coefficient)}`, display: "Indef." };
+          return { expression: `${formatValue(displayRhs)} / ${formatValue(displayCoefficient)}`, display: "Indef." };
         }
 
         return {
-          expression: `${formatNumber(rhs)} / ${formatNumber(coefficient)}`,
+          expression: `${formatValue(displayRhs)} / ${formatValue(displayCoefficient)}`,
           display: rhs > 0 ? "∞" : "-∞"
         };
       }
 
       const ratio = cleanNumber(rhs / coefficient);
-      const baseExpression = `${formatProductFactor(rhs)} / ${formatProductFactor(coefficient)}`;
+      const exactRatio = exactDivideRational(displayRhs, displayCoefficient);
+      const baseExpression = `${formatProductFactor(displayRhs)} / ${formatProductFactor(displayCoefficient)}`;
 
       return {
         expression: baseExpression,
-        display: formatExtendedNumber(ratio)
+        display: state.numberFormat === "fraction" ? formatExactRational(exactRatio) : formatExtendedNumber(ratio)
       };
     });
 
-  const formatSymbol = (label) => {
-    const match = label.match(/^([a-zA-Z]+)(\d+)$/);
+  const formatSymbol = (label, columnIndex = null) => {
+    const displayLabel = formatDisplayVariableName(label, columnIndex);
+    const match = displayLabel.match(/^([a-zA-Z]+)(\d+)$/);
 
     if (!match) {
-      return label;
+      return displayLabel;
     }
 
     return `${match[1]}<sub>${match[2]}</sub>`;
   };
 
+  const collectNonZeroProducts = (items, rightValueSelector) => {
+    return items
+      .map((item) => ({
+        rowIndex: item.rowIndex,
+        left: item.basisCost,
+        right: rightValueSelector(item)
+      }))
+      .filter(({ left, right }) => !isZeroValue(left) && !isZeroValue(right));
+  };
+
+  const renderNonZeroProductSum = (products) => {
+    const terms = products.map(({ left, right }) => `${formatProductFactor(left)} &times; ${formatProductFactor(right)}`);
+    return terms.length ? terms.join(" + ") : "0";
+  };
+
   const cjCells = snapshot.variableNames.map((_, columnIndex) => `
-    <th class="${columnIndex === enteringColumn ? "pivot-column" : ""}">
-      ${formatNumber(snapshot.objectiveCoefficients[columnIndex] ?? 0)}
+    <th class="${columnIndex === enteringColumn ? "pivot-column" : ""}" data-role="cj" data-table-col="${columnIndex}">
+      ${formatValue(displayObjectiveValue(displayObjectiveCoefficients[columnIndex] ?? 0))}
     </th>
   `).join("");
 
@@ -2825,23 +3645,34 @@ function buildTableMarkup(snapshot, previousSnapshot = null) {
 
   const basisRows = snapshot.tableau.slice(0, -1).map((row, rowIndex) => {
     const basisColumn = snapshot.basis[rowIndex];
+    const displayRow = displayTableau[rowIndex];
 
     return {
       row,
+      displayRow,
       rowIndex,
       basisVariable: snapshot.variableNames[basisColumn] ?? "Base",
-      basisCost: snapshot.objectiveCoefficients[basisColumn] ?? 0,
-      rhs: row[rhsColumnIndex]
+      basisColumn,
+      basisCost: displayObjectiveValue(displayObjectiveCoefficients[basisColumn] ?? 0),
+      rhs: displayRow[rhsColumnIndex]
     };
   });
 
-  const rows = basisRows.map(({ row, rowIndex, basisVariable, basisCost, rhs }) => {
+  const rows = basisRows.map(({ row, displayRow, rowIndex, basisVariable, basisColumn, basisCost, rhs }) => {
     const ratioInfo = ratios[rowIndex];
     const ratioAttributes = ratioInfo == null
       ? ""
-      : ` tabindex="0" data-guide-target="row" data-calc-expression="${escapeHtml(ratioInfo.expression)}" data-calc-result="${escapeHtml(ratioInfo.display)}"`;
+      : ` tabindex="0" data-guide-target="row" data-calc-expression="${escapeHtml(ratioInfo.expression)}" data-calc-result="${escapeHtml(ratioInfo.display)}" data-current-highlights="${escapeHtml(JSON.stringify([
+        { row: rowIndex, role: "rhs", tone: "z-rhs" },
+        { row: rowIndex, column: enteringColumn, tone: "z-cost" }
+      ]))}"`;
 
     const cells = row.slice(0, -1).map((value, columnIndex) => {
+      const displayValue = displayRow[columnIndex];
+      if (retiredArtificialColumns.has(columnIndex)) {
+        return `<td class="retired-artificial-cell" data-table-row="${rowIndex}" data-table-col="${columnIndex}">-</td>`;
+      }
+
       const previousCalculation = buildPreviousTableCalculation(previousSnapshot, snapshot, rowIndex, columnIndex);
       const classes = [
         columnIndex === enteringColumn ? "pivot-column" : "",
@@ -2854,12 +3685,12 @@ function buildTableMarkup(snapshot, previousSnapshot = null) {
             data-calc-mode="previous"
             data-calc-expression="${escapeHtml(previousCalculation.expression)}"
             data-calc-html="${escapeHtml(previousCalculation.expressionHtml ?? previousCalculation.expression)}"
-            data-calc-result="${escapeHtml(formatNumber(value))}"
+            data-calc-result="${escapeHtml(formatValue(displayValue))}"
             data-prev-highlights="${escapeHtml(JSON.stringify(previousCalculation.highlights))}"
           `
         : "";
 
-      return `<td class="${classes}" data-table-row="${rowIndex}" data-table-col="${columnIndex}"${previousAttributes}>${formatNumber(value)}</td>`;
+      return `<td class="${classes}" data-table-row="${rowIndex}" data-table-col="${columnIndex}"${previousAttributes}>${formatValue(displayValue)}</td>`;
     }).join("");
 
     const rhsCalculation = buildPreviousTableCalculation(previousSnapshot, snapshot, rowIndex, rhsColumnIndex);
@@ -2869,16 +3700,16 @@ function buildTableMarkup(snapshot, previousSnapshot = null) {
           data-calc-mode="previous"
           data-calc-expression="${escapeHtml(rhsCalculation.expression)}"
           data-calc-html="${escapeHtml(rhsCalculation.expressionHtml ?? rhsCalculation.expression)}"
-          data-calc-result="${escapeHtml(formatNumber(rhs))}"
+          data-calc-result="${escapeHtml(formatValue(rhs))}"
           data-prev-highlights="${escapeHtml(JSON.stringify(rhsCalculation.highlights))}"
         `
       : "";
 
     return `
       <tr class="${rowIndex === leavingRow ? "pivot-row" : ""}">
-        <td class="ck-cell">${formatNumber(basisCost)}</td>
-        <td class="basis-variable">${formatSymbol(basisVariable)}</td>
-        <td class="rhs-cell section-divider-right ${rhsCalculation ? "calc-trigger calc-from-previous" : ""}" data-table-row="${rowIndex}" data-table-col="${rhsColumnIndex}"${rhsAttributes}>${formatNumber(rhs)}</td>
+        <td class="ck-cell" data-table-row="${rowIndex}" data-role="basis-cost">${formatValue(basisCost)}</td>
+        <td class="basis-variable">${formatSymbol(basisVariable, basisColumn)}</td>
+        <td class="rhs-cell section-divider-right ${rhsCalculation ? "calc-trigger calc-from-previous" : ""}" data-table-row="${rowIndex}" data-table-col="${rhsColumnIndex}" data-role="rhs"${rhsAttributes}>${formatValue(rhs)}</td>
         ${cells}
         <td class="ratio-cell section-divider-left ${ratioInfo == null ? "" : "calc-trigger"}"${ratioAttributes}>${ratioInfo == null ? "&nbsp;" : renderTableValue(ratioInfo.display)}</td>
         <td class="guide-gutter row-guide-cell">
@@ -2891,32 +3722,45 @@ function buildTableMarkup(snapshot, previousSnapshot = null) {
     `;
   }).join("");
 
+  const zProducts = basisRows.length
+    ? collectNonZeroProducts(basisRows, ({ rhs }) => rhs)
+    : [];
   const zExpression = basisRows.length
-    ? basisRows.map(({ basisCost, rhs }) => `${formatProductFactor(basisCost)} &times; ${formatProductFactor(rhs)}`).join(" + ")
-    : formatNumber(objectiveRow[rhsColumnIndex]);
+    ? renderNonZeroProductSum(zProducts)
+    : formatValue(displayObjectiveValue(displayObjectiveRowRaw[rhsColumnIndex]));
+  const zLabelText = `Z = ${formatValue(displayObjectiveRow[rhsColumnIndex])}`;
+  const zCurrentHighlights = zProducts.flatMap(({ rowIndex }) => ([
+    { row: rowIndex, role: "basis-cost", tone: "z-cost" },
+    { row: rowIndex, role: "rhs", tone: "z-rhs" }
+  ]));
+  const zHoverExpression = basisRows.length && zExpression !== "0" ? zExpression : "";
 
-  const objectiveCells = objectiveRow.slice(0, -1).map((value, columnIndex) => {
-    const previousCalculation = buildPreviousTableCalculation(previousSnapshot, snapshot, basisRows.length, columnIndex);
+  const objectiveCells = objectiveRow.slice(0, -1).map((_, columnIndex) => {
+    if (retiredArtificialColumns.has(columnIndex)) {
+      return `<td class="${columnIndex === enteringColumn ? "pivot-column " : ""}retired-artificial-cell" data-table-row="${basisRows.length}" data-table-col="${columnIndex}">-</td>`;
+    }
+
+    const displayValue = displayObjectiveRow[columnIndex];
+    const zjProducts = basisRows.length
+      ? collectNonZeroProducts(basisRows, ({ displayRow }) => displayRow[columnIndex])
+      : [];
     const zjExpression = basisRows.length
-      ? basisRows.map(({ basisCost, row }) => `${formatProductFactor(basisCost)} &times; ${formatProductFactor(row[columnIndex])}`).join(" + ")
+      ? renderNonZeroProductSum(zjProducts)
       : "0";
-    const cjValue = snapshot.objectiveCoefficients[columnIndex] ?? 0;
-    const fullExpression = Math.abs(cjValue) > EPSILON
+    const cjValue = displayObjectiveValue(displayObjectiveCoefficients[columnIndex] ?? 0);
+    const fullExpression = !isZeroValue(cjValue)
       ? `${zjExpression} - ${formatProductFactor(cjValue)}`
       : zjExpression;
-
-    const previousAttributes = previousCalculation
-      ? `
-          data-calc-mode="previous"
-          data-calc-expression="${escapeHtml(previousCalculation.expression)}"
-          data-calc-html="${escapeHtml(previousCalculation.expressionHtml ?? previousCalculation.expression)}"
-          data-calc-result="${escapeHtml(formatNumber(value))}"
-          data-prev-highlights="${escapeHtml(JSON.stringify(previousCalculation.highlights))}"
-        `
-      : "";
+    const currentHighlights = [
+      ...basisRows.map(({ rowIndex }) => rowIndex).flatMap((rowIndex) => ([
+        { row: rowIndex, role: "basis-cost", tone: "z-cost" },
+        { row: rowIndex, column: columnIndex, tone: "z-rhs" }
+      ])),
+      { role: "cj", column: columnIndex, tone: "primary" }
+    ];
 
     return `
-      <td class="${columnIndex === enteringColumn ? "pivot-column " : ""}calc-trigger" tabindex="0" data-table-row="${basisRows.length}" data-table-col="${columnIndex}" ${previousCalculation ? previousAttributes : `data-guide-target="bottom" data-calc-expression="${escapeHtml(fullExpression.replaceAll("&times;", "x"))}" data-calc-result="${escapeHtml(formatNumber(value))}"`}>${formatNumber(value)}</td>
+      <td class="${columnIndex === enteringColumn ? "pivot-column " : ""}calc-trigger" tabindex="0" data-table-row="${basisRows.length}" data-table-col="${columnIndex}" data-guide-target="bottom" data-calc-expression="${escapeHtml(fullExpression.replaceAll("&times;", "x"))}" data-calc-result="${escapeHtml(formatValue(displayValue))}" data-current-highlights="${escapeHtml(JSON.stringify(currentHighlights))}">${formatValue(displayValue)}</td>
     `;
   }).join("");
   const bottomGuideMarkup = enteringColumn === -1
@@ -2949,7 +3793,7 @@ function buildTableMarkup(snapshot, previousSnapshot = null) {
 
   return `
     <div class="table-wrap classroom-wrap">
-      <table class="classroom-tableau">
+      <table class="classroom-tableau ${state.numberFormat === "fraction" ? "fraction-display" : ""}">
         <colgroup>
           ${Array.from({ length: 3 }, () => buildFixedCol(dataColumnWidth)).join("")}
           ${Array.from({ length: snapshot.variableNames.length }, () => buildFixedCol(dataColumnWidth)).join("")}
@@ -2981,7 +3825,7 @@ function buildTableMarkup(snapshot, previousSnapshot = null) {
         <tbody>
           ${rows}
           <tr class="objective-row classroom-z-row">
-            <td colspan="3" class="z-label section-divider-right">Z = ${zExpression} = ${formatNumber(objectiveRow[rhsColumnIndex])}</td>
+            <td colspan="3" class="z-label section-divider-right ${zHoverExpression ? "calc-trigger" : ""}" ${zHoverExpression ? `tabindex="0" data-guide-target="bottom" data-calc-expression="${escapeHtml(zHoverExpression.replaceAll("&times;", "x"))}" data-calc-result="${escapeHtml(formatValue(displayObjectiveRow[rhsColumnIndex]))}" data-current-highlights="${escapeHtml(JSON.stringify(zCurrentHighlights))}"` : ""}>${zLabelText}</td>
             ${objectiveCells}
             <td class="ratio-cell section-divider-left">&nbsp;</td>
             <td class="guide-gutter">&nbsp;</td>
@@ -3003,8 +3847,8 @@ function clearGuideCalculations(container) {
 }
 
 function clearTraceHighlights(container = iterationGroups) {
-  container.querySelectorAll(".trace-cell-primary, .trace-cell-secondary, .trace-cell-factor, .trace-cell-pivot, .trace-cell-current, .trace-row-focus").forEach((node) => {
-    node.classList.remove("trace-cell-primary", "trace-cell-secondary", "trace-cell-factor", "trace-cell-pivot", "trace-cell-current", "trace-row-focus");
+  container.querySelectorAll(".trace-cell-primary, .trace-cell-secondary, .trace-cell-factor, .trace-cell-pivot, .trace-cell-current, .trace-cell-z-cost, .trace-cell-z-rhs, .trace-row-focus").forEach((node) => {
+    node.classList.remove("trace-cell-primary", "trace-cell-secondary", "trace-cell-factor", "trace-cell-pivot", "trace-cell-current", "trace-cell-z-cost", "trace-cell-z-rhs", "trace-row-focus");
   });
 }
 
@@ -3015,22 +3859,31 @@ function applyTraceHighlights(card, highlights) {
 
   highlights.forEach((highlight) => {
     const row = Number(highlight.row);
-    const column = Number(highlight.column);
     const tone = String(highlight.tone || "primary");
-    const cell = card.querySelector(`[data-table-row="${row}"][data-table-col="${column}"]`);
+    const role = highlight.role ? String(highlight.role) : "";
+    const column = highlight.column == null ? null : Number(highlight.column);
+    const cell = role === "cj"
+      ? card.querySelector(`[data-role="cj"][data-table-col="${column}"]`)
+      : role
+        ? card.querySelector(`[data-table-row="${row}"][data-role="${role}"]`)
+        : card.querySelector(`[data-table-row="${row}"][data-table-col="${column}"]`);
 
     if (!(cell instanceof HTMLElement)) {
       return;
     }
 
     cell.classList.add(
-      tone === "pivot"
-        ? "trace-cell-pivot"
-        : tone === "factor"
-          ? "trace-cell-factor"
-          : tone === "secondary"
-            ? "trace-cell-secondary"
-            : "trace-cell-primary"
+      tone === "z-cost"
+        ? "trace-cell-z-cost"
+        : tone === "z-rhs"
+          ? "trace-cell-z-rhs"
+          : tone === "pivot"
+            ? "trace-cell-pivot"
+            : tone === "factor"
+              ? "trace-cell-factor"
+              : tone === "secondary"
+                ? "trace-cell-secondary"
+                : "trace-cell-primary"
     );
 
     const rowElement = cell.closest("tr");
@@ -3057,10 +3910,13 @@ function updateGuideCalculation(target) {
   const expression = target.dataset.calcExpression ?? "";
   const expressionHtml = target.dataset.calcHtml ?? "";
   const result = target.dataset.calcResult ?? "";
-  const fullText = `${expression} = ${result}`;
-  const fullHtml = expressionHtml
-    ? `${expressionHtml} = <span class="calc-token calc-token-result">${escapeHtml(result)}</span>`
-    : escapeHtml(fullText);
+  const displayMode = target.dataset.calcDisplay ?? "equation";
+  const fullText = displayMode === "result-only" ? result : `${expression} = ${result}`;
+  const fullHtml = displayMode === "result-only"
+    ? `<span class="calc-token calc-token-result">${escapeHtml(result)}</span>`
+    : expressionHtml
+      ? `${expressionHtml} = <span class="calc-token calc-token-result">${escapeHtml(result)}</span>`
+      : escapeHtml(fullText);
   const calcMode = target.dataset.calcMode ?? "current";
 
   if (calcMode === "previous") {
@@ -3097,9 +3953,36 @@ function updateGuideCalculation(target) {
 
   calcNode.innerHTML = fullHtml;
   calcNode.classList.add("is-active");
+
+  try {
+    const highlights = JSON.parse(target.dataset.currentHighlights ?? "[]");
+    applyTraceHighlights(card, highlights);
+  } catch {
+    // Ignore malformed current highlight payloads.
+  }
 }
 
-function renderSnapshots(snapshots) {
+function buildTerminationReason(result) {
+  if (result.status === "optimal") {
+    return state.objectiveType === "min"
+      ? "Condicion de corte: en la fila Z - Cj ya no quedan valores positivos."
+      : "Condicion de corte: en la fila Z - Cj ya no quedan valores negativos.";
+  }
+
+  if (result.status === "unbounded") {
+    return "Condicion de corte: aparecio una columna entrante pero no hubo fila saliente positiva.";
+  }
+
+  if (result.status === "infeasible") {
+    return "Condicion de corte: no se pudo construir una solucion factible que elimine las artificiales activas.";
+  }
+
+  return result.reason || result.messages?.[0] || "Condicion de corte: el procedimiento se detuvo por una condicion excepcional.";
+}
+
+function renderSnapshots(result) {
+  const snapshots = result.snapshots ?? [];
+
   if (!snapshots.length) {
     iterationGroups.innerHTML = "";
     return;
@@ -3114,7 +3997,8 @@ function renderSnapshots(snapshots) {
     return accumulator;
   }, {});
 
-  iterationGroups.innerHTML = Object.entries(grouped).map(([phase, items]) => {
+  const groupedEntries = Object.entries(grouped);
+  const groupsMarkup = groupedEntries.map(([phase, items], groupIndex) => {
     const iterationCount = Math.max(items.length - 1, 0);
 
     return `
@@ -3133,14 +4017,28 @@ function renderSnapshots(snapshots) {
             </button>
           </div>
         </div>
-        ${items.map((snapshot, index) => `
-          <article class="iteration-card">
+        ${items.map((snapshot, index) => {
+      const isLastCard = groupIndex === groupedEntries.length - 1 && index === items.length - 1;
+
+      return `
+          <article class="iteration-card${isLastCard ? " is-last-card" : ""}">
             ${buildTableMarkup(snapshot, index > 0 ? items[index - 1] : null)}
           </article>
-        `).join("")}
+        `;
+    }).join("")}
       </section>
     `;
   }).join("");
+
+  const terminationReason = buildTerminationReason(result);
+
+  iterationGroups.innerHTML = `
+    ${groupsMarkup}
+    <section class="termination-note">
+      <p class="termination-note-label">Fin del procedimiento</p>
+      <p class="termination-note-copy">${terminationReason}</p>
+    </section>
+  `;
 
   initializeTableCopyButtons();
 }
@@ -3157,7 +4055,7 @@ function refreshResults() {
   const result = solveModel();
   renderSummary(result);
   renderGraph(result);
-  renderSnapshots(result.snapshots ?? []);
+  renderSnapshots(result);
 }
 
 function syncDimensionsFromInputs({ normalize = false } = {}) {
@@ -3182,11 +4080,1392 @@ function syncDimensionsFromInputs({ normalize = false } = {}) {
   refreshResults();
 }
 
+function clampTransportDimension(value) {
+  const parsed = parseInt(value, 10);
+  return Math.min(6, Math.max(1, Number.isFinite(parsed) ? parsed : 1));
+}
+
+function createTransportCostRow(destinationCount) {
+  return Array.from({ length: destinationCount }, () => 0);
+}
+
+function resizeTransportState(nextOrigins, nextDestinations) {
+  transportState.originCount = nextOrigins;
+  transportState.destinationCount = nextDestinations;
+  transportState.offers = Array.from({ length: nextOrigins }, (_, index) => transportState.offers[index] ?? 0);
+  transportState.demands = Array.from({ length: nextDestinations }, (_, index) => transportState.demands[index] ?? 0);
+  transportState.costs = Array.from({ length: nextOrigins }, (_, rowIndex) => {
+    const source = transportState.costs[rowIndex] ?? createTransportCostRow(nextDestinations);
+    return Array.from({ length: nextDestinations }, (_, columnIndex) => source[columnIndex] ?? 0);
+  });
+}
+
+function clearTransportValues() {
+  transportState.offers = transportState.offers.map(() => 0);
+  transportState.demands = transportState.demands.map(() => 0);
+  transportState.costs = transportState.costs.map((row) => row.map(() => 0));
+}
+
+function applyTransportPreset(preset) {
+  if (!preset) {
+    return;
+  }
+
+  transportState.originCount = preset.originCount;
+  transportState.destinationCount = preset.destinationCount;
+  transportState.offers = [...preset.offers];
+  transportState.demands = [...preset.demands];
+  transportState.costs = preset.costs.map((row) => [...row]);
+
+  transportOriginCountInput.value = String(preset.originCount);
+  transportDestinationCountInput.value = String(preset.destinationCount);
+  updateCompactInputWidth(transportOriginCountInput);
+  updateCompactInputWidth(transportDestinationCountInput);
+  renderTransportGrid();
+  refreshTransportResults();
+}
+
+function getTransportTotal(values) {
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function getTransportBalanceDisplay(totalOffer, totalDemand) {
+  if (Math.abs(totalOffer - totalDemand) < EPSILON) {
+    return formatValue(totalOffer);
+  }
+
+  return `${formatValue(totalOffer)} / ${formatValue(totalDemand)}`;
+}
+
+function renderTransportPlainInput({ value, placeholder = "0", attributes = {} }) {
+  const inputAttributes = serializeAttributes({
+    type: "number",
+    step: "any",
+    value,
+    placeholder,
+    class: "compact-number-input transport-plain-input",
+    style: `--digits: ${countVisibleCharacters(value)};`,
+    ...attributes
+  });
+
+  return `<span class="transport-input-field"><input ${inputAttributes}></span>`;
+}
+
+function renderTransportGrid() {
+  const totalOffer = getTransportTotal(transportState.offers);
+  const totalDemand = getTransportTotal(transportState.demands);
+  const isBalanced = Math.abs(totalOffer - totalDemand) < EPSILON;
+  const destinationHeaders = Array.from({ length: transportState.destinationCount }, (_, index) => `<th>D${index + 1}</th>`).join("");
+
+  const rowsMarkup = transportState.costs.map((row, rowIndex) => `
+    <tr>
+      <th class="transport-row-label">O${rowIndex + 1}</th>
+      ${row.map((cost, columnIndex) => `
+        <td class="transport-cost-cell">
+          ${renderTransportPlainInput({
+    value: cost,
+    attributes: {
+      "data-scope": "transport-cost",
+      "data-row": rowIndex,
+      "data-index": columnIndex,
+      "aria-label": `Costo de O${rowIndex + 1} a D${columnIndex + 1}`
+    }
+  })}
+        </td>
+      `).join("")}
+      <td class="transport-cost-cell">
+        ${renderTransportPlainInput({
+    value: transportState.offers[rowIndex],
+    attributes: {
+      "data-scope": "transport-offer",
+      "data-row": rowIndex,
+      "aria-label": `Oferta de O${rowIndex + 1}`
+    }
+  })}
+      </td>
+    </tr>
+  `).join("");
+
+  const demandMarkup = transportState.demands.map((demand, columnIndex) => `
+    <td class="transport-cost-cell">
+      ${renderTransportPlainInput({
+    value: demand,
+    attributes: {
+      "data-scope": "transport-demand",
+      "data-index": columnIndex,
+      "aria-label": `Demanda de D${columnIndex + 1}`
+    }
+  })}
+    </td>
+  `).join("");
+
+  transportOriginCountInput.value = String(transportState.originCount);
+  transportDestinationCountInput.value = String(transportState.destinationCount);
+  updateCompactInputWidth(transportOriginCountInput);
+  updateCompactInputWidth(transportDestinationCountInput);
+
+  transportGrid.innerHTML = `
+    <p class="transport-table-caption">Tabla de costos</p>
+    <div class="transport-input-wrap">
+      <table class="transport-table transport-input-table">
+        <thead>
+          <tr>
+            <th></th>
+            ${destinationHeaders}
+            <th>Oferta</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsMarkup}
+          <tr>
+            <th class="transport-total-label">Demanda</th>
+            ${demandMarkup}
+            <td class="transport-balance-cell ${isBalanced ? "is-valid" : "is-invalid"}" data-transport-balance-total>
+              <strong>${escapeHtml(getTransportBalanceDisplay(totalOffer, totalDemand))}</strong>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  updateCompactInputWidths(transportForm);
+}
+
+function updateTransportGridBalanceDisplay() {
+  const balanceCell = transportGrid.querySelector("[data-transport-balance-total]");
+
+  if (!(balanceCell instanceof HTMLElement)) {
+    return;
+  }
+
+  const totalOffer = getTransportTotal(transportState.offers);
+  const totalDemand = getTransportTotal(transportState.demands);
+  const isBalanced = Math.abs(totalOffer - totalDemand) < EPSILON;
+
+  balanceCell.classList.toggle("is-valid", isBalanced);
+  balanceCell.classList.toggle("is-invalid", !isBalanced);
+  balanceCell.innerHTML = `<strong>${escapeHtml(getTransportBalanceDisplay(totalOffer, totalDemand))}</strong>`;
+}
+
+function createTransportPlan(rows, columns) {
+  return {
+    amounts: Array.from({ length: rows }, () => Array.from({ length: columns }, () => 0)),
+    basics: Array.from({ length: rows }, () => Array.from({ length: columns }, () => false))
+  };
+}
+
+function cloneTransportPlan(plan) {
+  return {
+    amounts: plan.amounts.map((row) => row.map((value) => value)),
+    basics: plan.basics.map((row) => row.map((value) => value))
+  };
+}
+
+function countTransportBasics(plan) {
+  return plan.basics.reduce((count, row) => count + row.filter(Boolean).length, 0);
+}
+
+function createTransportUnionFind(size) {
+  const parent = Array.from({ length: size }, (_, index) => index);
+
+  function find(value) {
+    if (parent[value] !== value) {
+      parent[value] = find(parent[value]);
+    }
+
+    return parent[value];
+  }
+
+  function union(left, right) {
+    const rootLeft = find(left);
+    const rootRight = find(right);
+
+    if (rootLeft !== rootRight) {
+      parent[rootRight] = rootLeft;
+    }
+  }
+
+  return { find, union };
+}
+
+function ensureTransportNonDegenerate(plan, costs) {
+  const rowCount = plan.amounts.length;
+  const columnCount = plan.amounts[0]?.length ?? 0;
+  const expectedBasics = rowCount + columnCount - 1;
+
+  while (countTransportBasics(plan) < expectedBasics) {
+    const unionFind = createTransportUnionFind(rowCount + columnCount);
+
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        if (plan.basics[rowIndex][columnIndex]) {
+          unionFind.union(rowIndex, rowCount + columnIndex);
+        }
+      }
+    }
+
+    let selectedCell = null;
+
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        if (plan.basics[rowIndex][columnIndex]) {
+          continue;
+        }
+
+        if (unionFind.find(rowIndex) === unionFind.find(rowCount + columnIndex)) {
+          continue;
+        }
+
+        const candidate = {
+          row: rowIndex,
+          column: columnIndex,
+          cost: costs[rowIndex][columnIndex]
+        };
+
+        if (
+          !selectedCell
+          || candidate.cost < selectedCell.cost - EPSILON
+          || (Math.abs(candidate.cost - selectedCell.cost) < EPSILON
+            && (candidate.row < selectedCell.row || (candidate.row === selectedCell.row && candidate.column < selectedCell.column)))
+        ) {
+          selectedCell = candidate;
+        }
+      }
+    }
+
+    if (!selectedCell) {
+      break;
+    }
+
+    plan.basics[selectedCell.row][selectedCell.column] = true;
+  }
+
+  return plan;
+}
+
+function computeTransportCost(plan, costs) {
+  let total = 0;
+
+  for (let rowIndex = 0; rowIndex < plan.amounts.length; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < plan.amounts[rowIndex].length; columnIndex += 1) {
+      total += plan.amounts[rowIndex][columnIndex] * costs[rowIndex][columnIndex];
+    }
+  }
+
+  return total;
+}
+
+function countTransportPositiveAllocations(plan) {
+  return plan.amounts.reduce((count, row) => count + row.filter((value) => value > EPSILON).length, 0);
+}
+
+function buildNorthwestTransportPlan(offers, demands, costs) {
+  const remainingOffers = [...offers];
+  const remainingDemands = [...demands];
+  const plan = createTransportPlan(offers.length, demands.length);
+  let rowIndex = 0;
+  let columnIndex = 0;
+
+  while (rowIndex < offers.length && columnIndex < demands.length) {
+    const allocation = Math.min(remainingOffers[rowIndex], remainingDemands[columnIndex]);
+    plan.amounts[rowIndex][columnIndex] = allocation;
+    plan.basics[rowIndex][columnIndex] = true;
+    remainingOffers[rowIndex] -= allocation;
+    remainingDemands[columnIndex] -= allocation;
+
+    const offerDone = Math.abs(remainingOffers[rowIndex]) < EPSILON;
+    const demandDone = Math.abs(remainingDemands[columnIndex]) < EPSILON;
+
+    if (offerDone && demandDone) {
+      rowIndex += 1;
+      columnIndex += 1;
+    } else if (offerDone) {
+      rowIndex += 1;
+    } else {
+      columnIndex += 1;
+    }
+  }
+
+  const positiveAllocations = countTransportPositiveAllocations(plan);
+  const expectedAllocations = offers.length + demands.length - 1;
+  ensureTransportNonDegenerate(plan, costs);
+  return {
+    plan,
+    totalCost: computeTransportCost(plan, costs),
+    positiveAllocations,
+    expectedAllocations,
+    isDegenerate: positiveAllocations !== expectedAllocations
+  };
+}
+
+function buildColumnMinimumTransportPlan(offers, demands, costs) {
+  const remainingOffers = [...offers];
+  const remainingDemands = [...demands];
+  const plan = createTransportPlan(offers.length, demands.length);
+
+  while (remainingDemands.some((value) => value > EPSILON)) {
+    const roundCandidates = [];
+
+    for (let columnIndex = 0; columnIndex < demands.length; columnIndex += 1) {
+      if (remainingDemands[columnIndex] <= EPSILON) {
+        continue;
+      }
+
+      let bestRow = -1;
+      let bestCost = Infinity;
+
+      for (let rowIndex = 0; rowIndex < offers.length; rowIndex += 1) {
+        if (remainingOffers[rowIndex] <= EPSILON) {
+          continue;
+        }
+
+        const cost = costs[rowIndex][columnIndex];
+
+        if (
+          cost < bestCost - EPSILON
+          || (Math.abs(cost - bestCost) < EPSILON && remainingOffers[rowIndex] > (bestRow >= 0 ? remainingOffers[bestRow] : -Infinity) + EPSILON)
+        ) {
+          bestCost = cost;
+          bestRow = rowIndex;
+        }
+      }
+
+      if (bestRow >= 0) {
+        roundCandidates.push({
+          row: bestRow,
+          column: columnIndex,
+          cost: bestCost,
+          capacity: Math.min(remainingOffers[bestRow], remainingDemands[columnIndex])
+        });
+      }
+    }
+
+    if (roundCandidates.length === 0) {
+      break;
+    }
+
+    roundCandidates.sort((left, right) => {
+      if (Math.abs(left.cost - right.cost) >= EPSILON) {
+        return left.cost - right.cost;
+      }
+
+      if (Math.abs(left.capacity - right.capacity) >= EPSILON) {
+        return right.capacity - left.capacity;
+      }
+
+      return left.row - right.row || left.column - right.column;
+    });
+
+    let allocatedInRound = false;
+
+    for (const selected of roundCandidates) {
+      if (remainingOffers[selected.row] <= EPSILON || remainingDemands[selected.column] <= EPSILON) {
+        continue;
+      }
+
+      const allocation = Math.min(remainingOffers[selected.row], remainingDemands[selected.column]);
+
+      if (allocation <= EPSILON) {
+        continue;
+      }
+
+      plan.amounts[selected.row][selected.column] += allocation;
+      plan.basics[selected.row][selected.column] = true;
+      remainingOffers[selected.row] -= allocation;
+      remainingDemands[selected.column] -= allocation;
+      allocatedInRound = true;
+    }
+
+    if (!allocatedInRound) {
+      break;
+    }
+  }
+
+  const positiveAllocations = countTransportPositiveAllocations(plan);
+  const expectedAllocations = offers.length + demands.length - 1;
+  ensureTransportNonDegenerate(plan, costs);
+  return {
+    plan,
+    totalCost: computeTransportCost(plan, costs),
+    positiveAllocations,
+    expectedAllocations,
+    isDegenerate: positiveAllocations !== expectedAllocations
+  };
+}
+
+function computeTransportPotentials(plan, costs) {
+  const rowCount = plan.amounts.length;
+  const columnCount = plan.amounts[0].length;
+  const rowPotentials = Array.from({ length: rowCount }, () => null);
+  const columnPotentials = Array.from({ length: columnCount }, () => null);
+  rowPotentials[0] = 0;
+
+  let updated = true;
+
+  while (updated) {
+    updated = false;
+
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        if (!plan.basics[rowIndex][columnIndex]) {
+          continue;
+        }
+
+        const cost = costs[rowIndex][columnIndex];
+
+        if (rowPotentials[rowIndex] != null && columnPotentials[columnIndex] == null) {
+          columnPotentials[columnIndex] = cost - rowPotentials[rowIndex];
+          updated = true;
+        } else if (columnPotentials[columnIndex] != null && rowPotentials[rowIndex] == null) {
+          rowPotentials[rowIndex] = cost - columnPotentials[columnIndex];
+          updated = true;
+        }
+      }
+    }
+  }
+
+  return {
+    u: rowPotentials.map((value) => value ?? 0),
+    v: columnPotentials.map((value) => value ?? 0)
+  };
+}
+
+function computeTransportPotentialsWithSeed(plan, costs, seed) {
+  const rowCount = plan.amounts.length;
+  const columnCount = plan.amounts[0].length;
+  const rowPotentials = Array.from({ length: rowCount }, () => null);
+  const columnPotentials = Array.from({ length: columnCount }, () => null);
+  rowPotentials[0] = seed;
+
+  let updated = true;
+
+  while (updated) {
+    updated = false;
+
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+        if (!plan.basics[rowIndex][columnIndex]) {
+          continue;
+        }
+
+        const cost = costs[rowIndex][columnIndex];
+
+        if (rowPotentials[rowIndex] != null && columnPotentials[columnIndex] == null) {
+          columnPotentials[columnIndex] = cost - rowPotentials[rowIndex];
+          updated = true;
+        } else if (columnPotentials[columnIndex] != null && rowPotentials[rowIndex] == null) {
+          rowPotentials[rowIndex] = cost - columnPotentials[columnIndex];
+          updated = true;
+        }
+      }
+    }
+  }
+
+  return {
+    u: rowPotentials.map((value) => value ?? 0),
+    v: columnPotentials.map((value) => value ?? 0)
+  };
+}
+
+function computeTransportOpportunityMatrix(plan, costs) {
+  const potentials = computeTransportPotentials(plan, costs);
+  const matrix = costs.map((row, rowIndex) => row.map((cost, columnIndex) => potentials.u[rowIndex] + potentials.v[columnIndex] - cost));
+
+  return {
+    matrix,
+    potentials
+  };
+}
+
+function findTransportEnteringCell(plan, opportunityMatrix) {
+  let bestCell = null;
+
+  for (let rowIndex = 0; rowIndex < opportunityMatrix.length; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < opportunityMatrix[rowIndex].length; columnIndex += 1) {
+      if (plan.basics[rowIndex][columnIndex]) {
+        continue;
+      }
+
+      const value = opportunityMatrix[rowIndex][columnIndex];
+
+      if (
+        value > EPSILON
+        && (
+          !bestCell
+          || value > bestCell.value + EPSILON
+          || (Math.abs(value - bestCell.value) < EPSILON && (rowIndex < bestCell.row || (rowIndex === bestCell.row && columnIndex < bestCell.column)))
+        )
+      ) {
+        bestCell = { row: rowIndex, column: columnIndex, value };
+      }
+    }
+  }
+
+  return bestCell;
+}
+
+function findTransportCycle(plan, enteringCell) {
+  const cells = [];
+
+  for (let rowIndex = 0; rowIndex < plan.basics.length; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < plan.basics[rowIndex].length; columnIndex += 1) {
+      if (plan.basics[rowIndex][columnIndex] || (rowIndex === enteringCell.row && columnIndex === enteringCell.column)) {
+        cells.push([rowIndex, columnIndex]);
+      }
+    }
+  }
+
+  function visit(path, moveAlongRow) {
+    const [currentRow, currentColumn] = path[path.length - 1];
+
+    for (const [nextRow, nextColumn] of cells) {
+      if (moveAlongRow ? nextRow !== currentRow || nextColumn === currentColumn : nextColumn !== currentColumn || nextRow === currentRow) {
+        continue;
+      }
+
+      const isStart = nextRow === enteringCell.row && nextColumn === enteringCell.column;
+
+      if (isStart) {
+        if (path.length >= 4) {
+          return path;
+        }
+
+        continue;
+      }
+
+      if (path.some(([row, column]) => row === nextRow && column === nextColumn)) {
+        continue;
+      }
+
+      const result = visit([...path, [nextRow, nextColumn]], !moveAlongRow);
+
+      if (result) {
+        return result;
+      }
+    }
+
+    return null;
+  }
+
+  return visit([[enteringCell.row, enteringCell.column]], true) ?? visit([[enteringCell.row, enteringCell.column]], false);
+}
+
+function pivotTransportPlan(plan, enteringCell, cycle, costs) {
+  const nextPlan = cloneTransportPlan(plan);
+  nextPlan.basics[enteringCell.row][enteringCell.column] = true;
+  const minusCells = cycle.filter((_, index) => index % 2 === 1);
+  const theta = Math.min(...minusCells.map(([rowIndex, columnIndex]) => nextPlan.amounts[rowIndex][columnIndex]));
+
+  cycle.forEach(([rowIndex, columnIndex], index) => {
+    if (index % 2 === 0) {
+      nextPlan.amounts[rowIndex][columnIndex] += theta;
+    } else {
+      nextPlan.amounts[rowIndex][columnIndex] -= theta;
+    }
+
+    if (Math.abs(nextPlan.amounts[rowIndex][columnIndex]) < EPSILON) {
+      nextPlan.amounts[rowIndex][columnIndex] = 0;
+    }
+  });
+
+  const leavingCell = minusCells.find(([rowIndex, columnIndex]) => Math.abs(nextPlan.amounts[rowIndex][columnIndex]) < EPSILON) ?? minusCells[0];
+  nextPlan.basics[leavingCell[0]][leavingCell[1]] = false;
+  ensureTransportNonDegenerate(nextPlan, costs);
+
+  return {
+    plan: nextPlan,
+    theta,
+    leavingCell
+  };
+}
+
+function optimizeTransportPlan(initialPlan, costs) {
+  const iterations = [];
+  let currentPlan = cloneTransportPlan(initialPlan);
+  ensureTransportNonDegenerate(currentPlan, costs);
+
+  for (let iteration = 0; iteration < 24; iteration += 1) {
+    const { matrix, potentials } = computeTransportOpportunityMatrix(currentPlan, costs);
+    const enteringCell = findTransportEnteringCell(currentPlan, matrix);
+
+    if (!enteringCell) {
+      return {
+        optimalPlan: currentPlan,
+        optimal: true,
+        iterations,
+        finalOpportunityMatrix: matrix,
+        finalPotentials: potentials
+      };
+    }
+
+    const cycle = findTransportCycle(currentPlan, enteringCell);
+
+    if (!cycle) {
+      return {
+        optimalPlan: currentPlan,
+        optimal: false,
+        iterations,
+        finalOpportunityMatrix: matrix,
+        finalPotentials: potentials
+      };
+    }
+
+    const pivotResult = pivotTransportPlan(currentPlan, enteringCell, cycle, costs);
+    currentPlan = pivotResult.plan;
+    iterations.push({
+      iteration: iteration + 1,
+      enteringCell,
+      cycle,
+      theta: pivotResult.theta,
+      leavingCell: pivotResult.leavingCell,
+      allocation: cloneTransportPlan(currentPlan),
+      opportunityMatrix: matrix,
+      potentials,
+      totalCost: computeTransportCost(currentPlan, costs)
+    });
+  }
+
+  const finalSnapshot = computeTransportOpportunityMatrix(currentPlan, costs);
+
+  return {
+    optimalPlan: currentPlan,
+    optimal: false,
+    iterations,
+    finalOpportunityMatrix: finalSnapshot.matrix,
+    finalPotentials: finalSnapshot.potentials
+  };
+}
+
+function solveTransportProblem() {
+  const offers = transportState.offers.map((value) => Math.max(0, value));
+  const demands = transportState.demands.map((value) => Math.max(0, value));
+  const costs = transportState.costs.map((row) => row.map((value) => value));
+  const totalOffer = getTransportTotal(offers);
+  const totalDemand = getTransportTotal(demands);
+  const isBalanced = Math.abs(totalOffer - totalDemand) < EPSILON;
+
+  if (!isBalanced) {
+    return {
+      valid: false,
+      totalOffer,
+      totalDemand
+    };
+  }
+
+  const northwest = buildNorthwestTransportPlan(offers, demands, costs);
+  const columnMinimum = buildColumnMinimumTransportPlan(offers, demands, costs);
+  const optimization = optimizeTransportPlan(columnMinimum.plan, costs);
+  const verification = createTransportVerification(columnMinimum.plan, costs, offers, demands);
+
+  return {
+    valid: true,
+    costs,
+    offers,
+    demands,
+    totalOffer,
+    totalDemand,
+    northwest,
+    columnMinimum,
+    verification,
+    optimization,
+    optimalCost: computeTransportCost(optimization.optimalPlan, costs)
+  };
+}
+
+function renderTransportPotentialList(potentials) {
+  const rowPotentials = potentials.u.map((value, index) => `u${index + 1} = ${formatValue(value)}`).join(" · ");
+  const columnPotentials = potentials.v.map((value, index) => `v${index + 1} = ${formatValue(value)}`).join(" · ");
+  return `<p class="transport-iteration-note">${rowPotentials}<br>${columnPotentials}</p>`;
+}
+
+function formatTransportCellReference(rowIndex, columnIndex) {
+  return `O${rowIndex + 1}-D${columnIndex + 1}`;
+}
+
+function buildTransportThetaCellAdjustments(previousPlan, cycle, theta) {
+  if (!previousPlan || !Array.isArray(cycle) || cycle.length === 0 || !Number.isFinite(theta)) {
+    return {};
+  }
+
+  return cycle.reduce((adjustments, [rowIndex, columnIndex], index) => {
+    const currentValue = previousPlan.amounts[rowIndex][columnIndex];
+    const isPlus = index % 2 === 0;
+    adjustments[getTransportCycleCellKey(rowIndex, columnIndex)] = {
+      expression: `${formatValue(currentValue)} ${isPlus ? "+" : "-"} ${formatValue(theta)}`,
+      sign: isPlus ? "+" : "-"
+    };
+    return adjustments;
+  }, {});
+}
+
+function renderTransportThetaSteps(referencePlan, stepDetails) {
+  if (!referencePlan || !stepDetails?.cycle?.length || !Number.isFinite(stepDetails.theta)) {
+    return "";
+  }
+
+  const theta = stepDetails.theta;
+  const plusCells = stepDetails.cycle.filter((_, index) => index % 2 === 0);
+  const minusCells = stepDetails.cycle.filter((_, index) => index % 2 === 1);
+  const minusEntries = minusCells.map(([rowIndex, columnIndex]) => ({
+    rowIndex,
+    columnIndex,
+    value: referencePlan.amounts[rowIndex][columnIndex]
+  }));
+  const minusChoicesMarkup = minusEntries.map(({ rowIndex, columnIndex, value }) => `
+    <span class="transport-theta-choice ${Math.abs(value - theta) < EPSILON ? "is-min" : ""}">
+      ${formatTransportCellReference(rowIndex, columnIndex)} = ${formatValue(value)}
+    </span>
+  `).join("");
+  const plusUpdates = plusCells.map(([rowIndex, columnIndex]) => {
+    const currentValue = referencePlan.amounts[rowIndex][columnIndex];
+    const nextValue = currentValue + theta;
+    return `<p>${formatTransportCellReference(rowIndex, columnIndex)}: ${formatValue(currentValue)} + ${formatValue(theta)} = ${formatValue(nextValue)}</p>`;
+  }).join("");
+  const minusUpdates = minusCells.map(([rowIndex, columnIndex]) => {
+    const currentValue = referencePlan.amounts[rowIndex][columnIndex];
+    const nextValue = currentValue - theta;
+    return `<p>${formatTransportCellReference(rowIndex, columnIndex)}: ${formatValue(currentValue)} - ${formatValue(theta)} = ${formatValue(nextValue)}</p>`;
+  }).join("");
+
+  return `
+    <div class="transport-theta-steps">
+      <p class="transport-table-caption">Rehacer tabla con theta</p>
+      <div class="transport-theta-layout">
+        <div class="transport-theta-summary">
+          <p class="transport-iteration-note">1. Mirás solo celdas con signo -.</p>
+          <p class="transport-iteration-note">2. Buscás la menor asignación entre esas celdas.</p>
+          <div class="transport-theta-choice-list">${minusChoicesMarkup}</div>
+          <p class="transport-iteration-note">3. Ese valor es theta, ${formatValue(theta)}.</p>
+          <p class="transport-iteration-note">4. Sumás ${formatValue(theta)} en todas las celdas +.</p>
+          <p class="transport-iteration-note">5. Restás ${formatValue(theta)} en todas las celdas -.</p>
+        </div>
+        <div class="transport-theta-actions">
+          <div class="transport-theta-block is-plus">
+            <strong>Se suma en celdas +</strong>
+            ${plusUpdates}
+          </div>
+          <div class="transport-theta-block is-minus">
+            <strong>Se resta en celdas -</strong>
+            ${minusUpdates}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function getTransportColumnMinimumCells(costs) {
+  return costs[0].map((_, columnIndex) => {
+    let bestRow = 0;
+    let bestCost = costs[0][columnIndex];
+
+    for (let rowIndex = 1; rowIndex < costs.length; rowIndex += 1) {
+      const nextCost = costs[rowIndex][columnIndex];
+
+      if (nextCost < bestCost - EPSILON) {
+        bestCost = nextCost;
+        bestRow = rowIndex;
+      }
+    }
+
+    return { row: bestRow, column: columnIndex };
+  });
+}
+
+function getTransportCycleCellKey(rowIndex, columnIndex) {
+  return `${rowIndex}:${columnIndex}`;
+}
+
+function buildTransportCycleAnnotations(cycle) {
+  if (!Array.isArray(cycle) || cycle.length === 0) {
+    return {};
+  }
+
+  return cycle.reduce((annotations, [rowIndex, columnIndex], index) => {
+    const [nextRowIndex, nextColumnIndex] = cycle[(index + 1) % cycle.length];
+    let arrow = "";
+
+    if (nextRowIndex === rowIndex) {
+      arrow = nextColumnIndex > columnIndex ? "→" : "←";
+    } else if (nextColumnIndex === columnIndex) {
+      arrow = nextRowIndex > rowIndex ? "↓" : "↑";
+    }
+
+    annotations[getTransportCycleCellKey(rowIndex, columnIndex)] = {
+      sign: index % 2 === 0 ? "+" : "-",
+      arrow,
+      isStart: index === 0
+    };
+
+    return annotations;
+  }, {});
+}
+
+function renderTransportAllocationTable(title, plan, costs, offers, demands, totalCost, options = {}) {
+  const {
+    scope = "transport-default",
+    highlightOfferRow = false,
+    thetaAdjustments = {}
+  } = options;
+  const hasThetaAdjustments = Object.keys(thetaAdjustments).length > 0;
+  const headerMarkup = Array.from({ length: demands.length }, (_, index) => `<th>D${index + 1}</th>`).join("");
+  const bodyMarkup = plan.amounts.map((row, rowIndex) => `
+    <tr class="transport-solution-row">
+      <th class="transport-row-label">O${rowIndex + 1}</th>
+      ${row.map((amount, columnIndex) => {
+        const adjustment = thetaAdjustments[getTransportCycleCellKey(rowIndex, columnIndex)];
+        const hasPositiveAllocation = Math.abs(amount) >= EPSILON;
+        const shouldShowAllocation = Math.abs(amount) >= EPSILON || Boolean(adjustment);
+
+        return `
+        <td
+          class="transport-allocation-cell ${hasPositiveAllocation ? "has-allocation" : ""} ${adjustment ? "has-adjustment" : ""}"
+          data-solution-scope="${escapeHtml(scope)}"
+          data-solution-row="${rowIndex}"
+          data-solution-col="${columnIndex}"
+          data-solution-cost="${escapeHtml(String(formatValue(costs[rowIndex][columnIndex])))}"
+          style="--transport-highlight:${TRANSPORT_HIGHLIGHT_COLORS[columnIndex % TRANSPORT_HIGHLIGHT_COLORS.length]};"
+        >
+          ${shouldShowAllocation ? `
+            <div class="transport-cell-stack">
+              <span class="transport-cell-cost">c = ${formatValue(costs[rowIndex][columnIndex])}</span>
+              ${adjustment ? `<span class="transport-cell-adjustment transport-cell-adjustment-${adjustment.sign === "+" ? "plus" : "minus"}">${escapeHtml(adjustment.expression)}</span>` : ""}
+              <span class="transport-cell-allocation ${Math.abs(amount) < EPSILON ? "is-zero" : ""}">${formatValue(amount)}</span>
+            </div>
+          ` : '<span class="transport-cell-dash">-</span>'}
+        </td>
+      `;
+      }).join("")}
+      <td
+        class="${highlightOfferRow ? "transport-offer-hover-cell" : ""}"
+        ${highlightOfferRow ? `data-offer-highlight="${rowIndex}" data-offer-scope="${escapeHtml(scope)}"` : ""}
+      >
+        ${formatValue(offers[rowIndex])}
+      </td>
+    </tr>
+  `).join("");
+
+  const demandMarkup = demands.map((value) => `<td>${formatValue(value)}</td>`).join("");
+  const captionMarkup = title ? `<p class="transport-table-caption">${escapeHtml(title)}</p>` : "";
+
+  return `
+    <div class="transport-card-grid">
+      ${captionMarkup}
+      <div class="transport-input-wrap">
+        <table class="transport-table ${hasThetaAdjustments ? "transport-table-has-theta-adjustments" : ""}">
+          <thead>
+            <tr>
+              <th></th>
+              ${headerMarkup}
+              <th>Oferta</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${bodyMarkup}
+            <tr>
+              <th class="transport-total-label">Demanda</th>
+              ${demandMarkup}
+              <td class="transport-balance-cell transport-total-cost-cell transport-z-hover-cell is-valid" data-z-scope="${escapeHtml(scope)}">
+                <strong>Z = ${formatValue(totalCost)}</strong>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderTransportColumnMinimaTable(costs) {
+  const minima = getTransportColumnMinimumCells(costs);
+  const headerMarkup = Array.from({ length: costs[0]?.length ?? 0 }, (_, index) => `<th>D${index + 1}</th>`).join("");
+  const bodyMarkup = costs.map((row, rowIndex) => `
+    <tr>
+      <th class="transport-row-label">O${rowIndex + 1}</th>
+      ${row.map((cost, columnIndex) => {
+    const isMinimum = minima[columnIndex]?.row === rowIndex;
+    return `
+          <td class="transport-minimum-cell">
+            <span class="transport-minimum-value ${isMinimum ? "is-marked" : ""}">${formatValue(cost)}</span>
+          </td>
+        `;
+  }).join("")}
+    </tr>
+  `).join("");
+
+  return `
+    <div class="transport-card-grid">
+      <p class="transport-table-caption">Menor costo por columna</p>
+      <div class="transport-input-wrap">
+        <table class="transport-table">
+          <thead>
+            <tr>
+              <th></th>
+              ${headerMarkup}
+            </tr>
+          </thead>
+          <tbody>${bodyMarkup}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderTransportDegeneracyCheck(solution) {
+  return `
+    <div class="transport-degeneracy-check ${solution.isDegenerate ? "is-degenerate" : "is-normal"}">
+      <p>
+        Validación de asignaciones:<br>
+        Fórumula: m + n - 1 = asignaciones esperadas<br><br>
+        ${transportState.originCount} + ${transportState.destinationCount} - 1 = ${solution.expectedAllocations}.<br>
+        Asignaciones reales = ${solution.positiveAllocations}.<br><br>
+        Transporte ${solution.isDegenerate ? "degenerado" : "normal"}.
+      </p>
+    </div>
+  `;
+}
+
+function createTransportVerification(plan, costs, offers, demands) {
+  const seed = Math.abs(Math.round(
+    costs.flat().reduce((sum, value) => sum + value, 0)
+    + getTransportTotal(offers)
+    + getTransportTotal(demands)
+  )) % 11;
+  const potentials = computeTransportPotentialsWithSeed(plan, costs, seed);
+  const sums = costs.map((row, rowIndex) => row.map((_, columnIndex) => potentials.u[rowIndex] + potentials.v[columnIndex]));
+  const reduced = costs.map((row, rowIndex) => row.map((cost, columnIndex) => sums[rowIndex][columnIndex] - cost));
+  const isOptimal = reduced.every((row) => row.every((value) => value <= EPSILON));
+
+  return {
+    seed,
+    potentials,
+    sums,
+    reduced,
+    isOptimal
+  };
+}
+
+function renderTransportPotentialTable(verification, costs, plan, options = {}) {
+  const { scope = "transport-verification" } = options;
+  const colgroupMarkup = `
+    <colgroup>
+      <col class="transport-comparison-col-label">
+      ${Array.from({ length: costs[0]?.length ?? 0 }, () => "<col>").join("")}
+      <col class="transport-comparison-col-balance">
+    </colgroup>
+  `;
+  const columnHeaders = Array.from({ length: costs[0]?.length ?? 0 }, (_, index) => `<th>D${index + 1}</th>`).join("");
+  const bodyMarkup = costs.map((row, rowIndex) => `
+    <tr>
+      <th class="transport-row-label">O${rowIndex + 1}</th>
+      ${row.map((_, columnIndex) => `
+        <td
+          class="transport-verification-cell ${plan.basics[rowIndex][columnIndex] ? "is-basic" : ""}"
+          data-verification-scope="${escapeHtml(scope)}"
+          data-verification-row="${rowIndex}"
+          data-verification-col="${columnIndex}"
+        >
+          <span class="transport-verification-stack">
+            <span class="transport-cell-allocation">${formatValue(verification.sums[rowIndex][columnIndex])}</span>
+            <span class="transport-verification-subtract" data-verification-subtract></span>
+          </span>
+        </td>
+      `).join("")}
+      <td class="transport-balance-cell is-valid">${formatValue(verification.potentials.u[rowIndex])}</td>
+    </tr>
+  `).join("");
+
+  const footerMarkup = verification.potentials.v.map((value) => `<td class="transport-balance-cell is-valid">${formatValue(value)}</td>`).join("");
+
+  return `
+    <div class="transport-card-grid">
+      <p class="transport-table-caption">Verificación con fila y columna agregadas</p>
+      <div class="transport-input-wrap">
+        <table class="transport-table transport-comparison-table">
+          ${colgroupMarkup}
+          <thead>
+            <tr>
+              <th></th>
+              ${columnHeaders}
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${bodyMarkup}
+            <tr>
+              <th class="transport-total-label"></th>
+              ${footerMarkup}
+              <td class="transport-balance-cell is-valid"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderTransportReducedMatrix(verification, costs, options = {}) {
+  const {
+    cycleAnnotations = {},
+    totalCost = null,
+    scope = "transport-verification",
+    referencePlan = null,
+    offers = [],
+    demands = [],
+    stepDetails = null
+  } = options;
+  const colgroupMarkup = `
+    <colgroup>
+      <col class="transport-comparison-col-label">
+      ${Array.from({ length: verification.reduced[0]?.length ?? 0 }, () => "<col>").join("")}
+      <col class="transport-comparison-col-balance">
+    </colgroup>
+  `;
+  const referenceTableMarkup = !verification.isOptimal && referencePlan
+    ? `
+      <div class="transport-circuit-reference">
+        ${renderTransportAllocationTable("Solución actual, no la óptima", referencePlan, costs, offers, demands, totalCost ?? 0, {
+          scope: `${scope}-reference`,
+          highlightOfferRow: false
+        })}
+      </div>
+    `
+    : "";
+  const supportMarkup = verification.isOptimal ? "" : `
+      <div class="transport-circuit-support">
+        <div class="transport-circuit-rules">
+        <p class="transport-iteration-note">
+          Objetivo: armar un circuito cerrado.<br><br>
+          Reglas del circuito:<br>
+          1. Empezar en la celda positiva de mayor valor.<br>
+          2. Se puede avanzar solo vertical u horizontalmente.<br>
+          3. Doblá solo en celdas asignadas de tabla de solucion.<br>
+          4. Los signos alternan + y - hasta cerrar vuelta, siempre empezando con signo +.<br><br>
+          Notas:<br>
+          - No siempre conviene doblar en el primer 0 que encontrás. Puede pasar que mas adelante no tenga salida para seguir o cerrar el circuito.
+        </p>
+        </div>
+        ${referenceTableMarkup}
+      </div>
+  `;
+  const thetaStepsMarkup = verification.isOptimal ? "" : renderTransportThetaSteps(referencePlan, stepDetails);
+  const columnCount = verification.reduced[0]?.length ?? 0;
+  const headerMarkup = Array.from({ length: columnCount }, (_, index) => `<th>D${index + 1}</th>`).join("");
+  const bodyMarkup = verification.reduced.map((row, rowIndex) => `
+    <tr>
+      <th class="transport-row-label">O${rowIndex + 1}</th>
+      ${row.map((value, columnIndex) => {
+        const cycleMeta = cycleAnnotations[getTransportCycleCellKey(rowIndex, columnIndex)];
+        return `
+          <td
+            class="transport-opportunity-cell ${value > EPSILON ? "is-positive" : "is-optimal"} ${cycleMeta ? `is-cycle-cell is-cycle-${cycleMeta.sign === "+" ? "plus" : "minus"}` : ""}"
+            data-reduced-scope="${escapeHtml(scope)}"
+            data-reduced-row="${rowIndex}"
+            data-reduced-col="${columnIndex}"
+            data-reduced-cost="${escapeHtml(String(formatValue(costs[rowIndex][columnIndex])))}"
+          >
+            ${cycleMeta ? `
+              <div class="transport-cycle-flags" aria-hidden="true">
+                <span class="transport-cycle-sign transport-cycle-sign-${cycleMeta.sign === "+" ? "plus" : "minus"}">${cycleMeta.sign}</span>
+                <span class="transport-cycle-arrow ${cycleMeta.isStart ? "transport-cycle-arrow-start" : ""}">${cycleMeta.arrow}</span>
+              </div>
+            ` : ""}
+            ${formatValue(value)}
+          </td>
+        `;
+      }).join("")}
+      <td class="transport-balance-cell is-valid"></td>
+    </tr>
+  `).join("");
+
+  return `
+    <div class="transport-card-grid">
+      <p class="transport-table-caption">Tabla de 0 y negativos</p>
+      <div class="transport-input-wrap">
+        <table class="transport-table transport-comparison-table">
+          ${colgroupMarkup}
+          <thead>
+            <tr>
+              <th></th>
+              ${headerMarkup}
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${bodyMarkup}</tbody>
+        </table>
+      </div>
+      ${supportMarkup}
+      ${thetaStepsMarkup}
+      <div class="transport-degeneracy-check ${verification.isOptimal ? "is-normal" : "is-degenerate"}">
+        <p>${verification.isOptimal ? `Todos los valores dieron 0 o negativos. Punto óptimo.<br>Z = ${formatValue(totalCost ?? 0)}.` : "Aparecieron positivos. Todavía no es punto óptimo."}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderTransportOpportunityTable(matrix) {
+  const columnCount = matrix[0]?.length ?? 0;
+  const headerMarkup = Array.from({ length: columnCount }, (_, index) => `<th>D${index + 1}</th>`).join("");
+  const bodyMarkup = matrix.map((row, rowIndex) => `
+    <tr>
+      <th class="transport-row-label">O${rowIndex + 1}</th>
+      ${row.map((value) => `
+        <td class="transport-opportunity-cell ${value > EPSILON ? "is-positive" : "is-optimal"}">${formatValue(value)}</td>
+      `).join("")}
+    </tr>
+  `).join("");
+
+  return `
+    <div class="transport-card-grid">
+      <p class="transport-table-caption">Matriz de mejoras (u + v - c)</p>
+      <div class="transport-input-wrap">
+        <table class="transport-table">
+          <thead>
+            <tr>
+              <th></th>
+              ${headerMarkup}
+            </tr>
+          </thead>
+          <tbody>${bodyMarkup}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderTransportOptimizationContinuation(result) {
+  if (result.verification.isOptimal) {
+    return [];
+  }
+
+  const continuationCards = result.optimization.iterations.map((snapshot, index) => {
+    const stepVerification = createTransportVerification(snapshot.allocation, result.costs, result.offers, result.demands);
+    const nextIteration = result.optimization.iterations[index + 1];
+
+    return `
+      <article class="transport-card">
+        <div class="transport-card-copy">
+          <h3>Continuación: iteración ${snapshot.iteration}</h3>
+        </div>
+        ${renderTransportAllocationTable("", snapshot.allocation, result.costs, result.offers, result.demands, snapshot.totalCost, {
+          scope: `continuation-${snapshot.iteration}`,
+          highlightOfferRow: true,
+          thetaAdjustments: buildTransportThetaCellAdjustments(
+            index === 0 ? result.columnMinimum.plan : result.optimization.iterations[index - 1].allocation,
+            snapshot.cycle,
+            snapshot.theta
+          )
+        })}
+        ${renderTransportPotentialTable(stepVerification, result.costs, snapshot.allocation, {
+          scope: `continuation-${snapshot.iteration}`
+        })}
+        ${renderTransportReducedMatrix(stepVerification, result.costs, {
+          scope: `continuation-${snapshot.iteration}`,
+          cycleAnnotations: buildTransportCycleAnnotations(nextIteration?.cycle),
+          totalCost: snapshot.totalCost,
+          referencePlan: snapshot.allocation,
+          offers: result.offers,
+          demands: result.demands,
+          stepDetails: nextIteration ?? null
+        })}
+      </article>
+    `;
+  });
+
+  if (!result.optimization.optimal) {
+    const finalVerification = createTransportVerification(result.optimization.optimalPlan, result.costs, result.offers, result.demands);
+
+    continuationCards.push(`
+      <article class="transport-card">
+        <div class="transport-card-copy">
+          <h3>Resultado alcanzado</h3>
+          <p>Se mostró la mejor continuación encontrada con la rutina actual.</p>
+        </div>
+        ${renderTransportAllocationTable("", result.optimization.optimalPlan, result.costs, result.offers, result.demands, result.optimalCost, {
+          scope: "continuation-final",
+          highlightOfferRow: true
+        })}
+        ${renderTransportPotentialTable(finalVerification, result.costs, result.optimization.optimalPlan, {
+          scope: "continuation-final"
+        })}
+        ${renderTransportReducedMatrix(finalVerification, result.costs, {
+          scope: "continuation-final",
+          totalCost: result.optimalCost,
+          referencePlan: result.optimization.optimalPlan,
+          offers: result.offers,
+          demands: result.demands,
+          stepDetails: null
+        })}
+      </article>
+    `);
+  }
+
+  return continuationCards;
+}
+
+function renderTransportResults(result) {
+  if (!result.valid) {
+    transportResults.innerHTML = '<div class="transport-card transport-empty"><p class="transport-empty">Ajusta datos hasta que oferta total y demanda total coincidan.</p></div>';
+    return;
+  }
+
+  const cards = [
+    `
+      <article class="transport-card">
+        <div class="transport-card-copy">
+          <h3>Solucion 1: esquina noroeste</h3>
+        </div>
+        ${renderTransportAllocationTable("", result.northwest.plan, result.costs, result.offers, result.demands, result.northwest.totalCost, {
+          scope: "northwest",
+          highlightOfferRow: true
+        })}
+        ${renderTransportColumnMinimaTable(result.costs)}
+      </article>
+    `,
+    `
+      <article class="transport-card">
+        <div class="transport-card-copy">
+          <h3>Solucion 2: costo minimo por columna</h3>
+        </div>
+        ${renderTransportAllocationTable("", result.columnMinimum.plan, result.costs, result.offers, result.demands, result.columnMinimum.totalCost, {
+          scope: "column-min",
+          highlightOfferRow: true
+        })}
+        ${renderTransportDegeneracyCheck(result.columnMinimum)}
+      </article>
+    `,
+    `
+      <article class="transport-card">
+        <div class="transport-card-copy">
+          <h3>Verificacion de optimalidad</h3>
+        </div>
+        ${renderTransportPotentialTable(result.verification, result.costs, result.columnMinimum.plan, {
+          scope: "verification-base"
+        })}
+        ${renderTransportReducedMatrix(result.verification, result.costs, {
+          scope: "verification-base",
+          cycleAnnotations: buildTransportCycleAnnotations(result.optimization.iterations[0]?.cycle),
+          totalCost: result.columnMinimum.totalCost,
+          referencePlan: result.columnMinimum.plan,
+          offers: result.offers,
+          demands: result.demands,
+          stepDetails: result.optimization.iterations[0] ?? null
+        })}
+      </article>
+    `
+  ];
+
+  cards.push(...renderTransportOptimizationContinuation(result));
+
+  transportResults.innerHTML = cards.join("");
+}
+
+function refreshTransportResults() {
+  const result = solveTransportProblem();
+  renderTransportResults(result);
+}
+
+function clearTransportOfferHighlights() {
+  transportResults.querySelectorAll(".is-offer-highlighted").forEach((cell) => {
+    cell.classList.remove("is-offer-highlighted");
+  });
+}
+
+function applyTransportOfferHighlights(scope, row) {
+  clearTransportOfferHighlights();
+
+  transportResults.querySelectorAll(`[data-offer-scope="${scope}"][data-offer-highlight="${row}"]`).forEach((cell) => {
+    cell.classList.add("is-offer-highlighted");
+  });
+
+  transportResults.querySelectorAll(`[data-solution-scope="${scope}"][data-solution-row="${row}"].has-allocation`).forEach((cell) => {
+    cell.classList.add("is-offer-highlighted");
+  });
+}
+
+function applyTransportZHighlights(scope) {
+  clearTransportOfferHighlights();
+
+  transportResults.querySelectorAll(`[data-solution-scope="${scope}"].has-allocation, [data-z-scope="${scope}"]`).forEach((cell) => {
+    cell.classList.add("is-offer-highlighted");
+  });
+}
+
+function clearTransportVerificationHighlights() {
+  transportResults.querySelectorAll(".is-verification-hovered").forEach((cell) => {
+    cell.classList.remove("is-verification-hovered");
+  });
+
+  transportResults.querySelectorAll("[data-verification-subtract]").forEach((element) => {
+    element.textContent = "";
+  });
+}
+
+function applyTransportVerificationHover(scope, row, column, costDisplay) {
+  clearTransportVerificationHighlights();
+
+  transportResults.querySelectorAll(
+    `[data-verification-scope="${scope}"][data-verification-row="${row}"][data-verification-col="${column}"]`
+  ).forEach((cell) => {
+    cell.classList.add("is-verification-hovered");
+    cell.querySelector("[data-verification-subtract]")?.replaceChildren(`- ${costDisplay}`);
+  });
+
+  transportResults.querySelectorAll(
+    `[data-reduced-scope="${scope}"][data-reduced-row="${row}"][data-reduced-col="${column}"]`
+  ).forEach((cell) => {
+    cell.classList.add("is-verification-hovered");
+  });
+
+  transportResults.querySelectorAll(
+    `[data-solution-scope="${scope}-reference"][data-solution-row="${row}"][data-solution-col="${column}"]`
+  ).forEach((cell) => {
+    cell.classList.add("is-verification-hovered");
+  });
+}
+
+function syncTransportDimensionsFromInputs({ normalize = false } = {}) {
+  if (transportOriginCountInput.value === "" || transportDestinationCountInput.value === "") {
+    return;
+  }
+
+  const origins = clampTransportDimension(transportOriginCountInput.value);
+  const destinations = clampTransportDimension(transportDestinationCountInput.value);
+
+  if (normalize) {
+    transportOriginCountInput.value = String(origins);
+    transportDestinationCountInput.value = String(destinations);
+  }
+
+  if (origins === transportState.originCount && destinations === transportState.destinationCount) {
+    return;
+  }
+
+  resizeTransportState(origins, destinations);
+  renderTransportGrid();
+  refreshTransportResults();
+}
+
 objectiveToggle.addEventListener("click", () => {
   state.objectiveType = state.objectiveType === "max" ? "min" : "max";
   renderObjectiveToggle();
   renderObjectiveExpression();
   refreshResults();
+});
+
+displayModeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const nextMode = button.dataset.displayMode;
+
+    if (!nextMode || nextMode === state.numberFormat) {
+      return;
+    }
+
+    state.numberFormat = nextMode;
+    renderDisplayModeToggle();
+    refreshResults();
+  });
 });
 
 [variableCountInput, constraintCountInput].forEach((input) => {
@@ -3196,6 +5475,16 @@ objectiveToggle.addEventListener("click", () => {
 
   input.addEventListener("change", () => {
     syncDimensionsFromInputs({ normalize: true });
+  });
+});
+
+[transportOriginCountInput, transportDestinationCountInput].forEach((input) => {
+  input.addEventListener("input", () => {
+    syncTransportDimensionsFromInputs();
+  });
+
+  input.addEventListener("change", () => {
+    syncTransportDimensionsFromInputs({ normalize: true });
   });
 });
 
@@ -3258,6 +5547,257 @@ simplexForm.addEventListener("click", (event) => {
   refreshResults();
 });
 
+transportForm.addEventListener("input", (event) => {
+  const target = event.target;
+
+  if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+
+  updateCompactInputWidth(target);
+
+  const scope = target.dataset.scope;
+
+  if (!scope) {
+    return;
+  }
+
+  if (scope === "transport-cost") {
+    const rowIndex = Number(target.dataset.row);
+    const columnIndex = Number(target.dataset.index);
+    transportState.costs[rowIndex][columnIndex] = parseNumericValue(target.value);
+  } else if (scope === "transport-offer") {
+    const rowIndex = Number(target.dataset.row);
+    transportState.offers[rowIndex] = parseNumericValue(target.value);
+  } else if (scope === "transport-demand") {
+    const columnIndex = Number(target.dataset.index);
+    transportState.demands[columnIndex] = parseNumericValue(target.value);
+  }
+
+  updateTransportGridBalanceDisplay();
+  refreshTransportResults();
+});
+
+transportForm.addEventListener("click", (event) => {
+  const target = event.target;
+
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const stepperButton = target.closest(".mini-stepper-button");
+
+  if (!(stepperButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const parent = stepperButton.parentElement?.parentElement;
+  const input = parent?.querySelector("input");
+
+  if (input instanceof HTMLInputElement) {
+    bumpCompactInput(input, Number(stepperButton.dataset.delta));
+  }
+});
+
+transportClearButton?.addEventListener("click", () => {
+  clearTransportValues();
+  renderTransportGrid();
+  refreshTransportResults();
+});
+
+transportLoadSimpleButton?.addEventListener("click", () => {
+  applyTransportPreset(TRANSPORT_PRESETS.simple);
+});
+
+transportLoadCircuitButton?.addEventListener("click", () => {
+  applyTransportPreset(TRANSPORT_PRESETS.circuit);
+});
+
+["mouseover", "focusin"].forEach((eventName) => {
+  transportResults.addEventListener(eventName, (event) => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const offerCell = target.closest("[data-offer-highlight]");
+
+    if (!(offerCell instanceof HTMLElement)) {
+      const zCell = target.closest("[data-z-scope]");
+
+      if (!(zCell instanceof HTMLElement)) {
+        return;
+      }
+
+      applyTransportZHighlights(zCell.dataset.zScope);
+      return;
+    }
+
+    applyTransportOfferHighlights(offerCell.dataset.offerScope, offerCell.dataset.offerHighlight);
+  });
+});
+
+["mouseout", "focusout"].forEach((eventName) => {
+  transportResults.addEventListener(eventName, (event) => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const offerCell = target.closest("[data-offer-highlight]");
+
+    if (!(offerCell instanceof HTMLElement)) {
+      const zCell = target.closest("[data-z-scope]");
+
+      if (!(zCell instanceof HTMLElement)) {
+        return;
+      }
+
+      const relatedTarget = event.relatedTarget;
+
+      if (relatedTarget instanceof HTMLElement && zCell.contains(relatedTarget)) {
+        return;
+      }
+
+      clearTransportOfferHighlights();
+      return;
+    }
+
+    const relatedTarget = event.relatedTarget;
+
+    if (relatedTarget instanceof HTMLElement && offerCell.contains(relatedTarget)) {
+      return;
+    }
+
+    clearTransportOfferHighlights();
+  });
+});
+
+["mouseover", "focusin"].forEach((eventName) => {
+  transportResults.addEventListener(eventName, (event) => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const reducedCell = target.closest("[data-reduced-scope]");
+
+    if (!(reducedCell instanceof HTMLElement)) {
+      return;
+    }
+
+    applyTransportVerificationHover(
+      reducedCell.dataset.reducedScope,
+      reducedCell.dataset.reducedRow,
+      reducedCell.dataset.reducedCol,
+      reducedCell.dataset.reducedCost
+    );
+  });
+});
+
+["mouseout", "focusout"].forEach((eventName) => {
+  transportResults.addEventListener(eventName, (event) => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const reducedCell = target.closest("[data-reduced-scope]");
+
+    if (!(reducedCell instanceof HTMLElement)) {
+      return;
+    }
+
+    const relatedTarget = event.relatedTarget;
+
+    if (relatedTarget instanceof HTMLElement && reducedCell.contains(relatedTarget)) {
+      return;
+    }
+
+    clearTransportVerificationHighlights();
+  });
+});
+
+["mouseover", "focusin"].forEach((eventName) => {
+  transportResults.addEventListener(eventName, (event) => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const solutionCell = target.closest("[data-solution-scope]");
+
+    if (!(solutionCell instanceof HTMLElement)) {
+      return;
+    }
+
+    if (!solutionCell.dataset.solutionScope?.endsWith("-reference")) {
+      return;
+    }
+
+    applyTransportVerificationHover(
+      solutionCell.dataset.solutionScope.replace(/-reference$/, ""),
+      solutionCell.dataset.solutionRow,
+      solutionCell.dataset.solutionCol,
+      solutionCell.dataset.solutionCost
+    );
+  });
+});
+
+["mouseout", "focusout"].forEach((eventName) => {
+  transportResults.addEventListener(eventName, (event) => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const solutionCell = target.closest("[data-solution-scope]");
+
+    if (!(solutionCell instanceof HTMLElement)) {
+      return;
+    }
+
+    if (!solutionCell.dataset.solutionScope?.endsWith("-reference")) {
+      return;
+    }
+
+    const relatedTarget = event.relatedTarget;
+
+    if (relatedTarget instanceof HTMLElement && solutionCell.contains(relatedTarget)) {
+      return;
+    }
+
+    clearTransportVerificationHighlights();
+  });
+});
+
+tabButtons.forEach((button, index) => {
+  button.tabIndex = index === 0 ? 0 : -1;
+
+  button.addEventListener("click", () => {
+    setActiveTab(button.dataset.tab);
+  });
+
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") {
+      return;
+    }
+
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const nextIndex = (index + direction + tabButtons.length) % tabButtons.length;
+    const nextButton = tabButtons[nextIndex];
+    setActiveTab(nextButton.dataset.tab);
+    nextButton.focus();
+  });
+});
+
 ["mouseover", "focusin"].forEach((eventName) => {
   iterationGroups.addEventListener(eventName, (event) => {
     const target = event.target;
@@ -3312,5 +5852,10 @@ simplexForm.addEventListener("click", (event) => {
 });
 
 resizeState(state.variableCount, state.constraintCount);
+renderDisplayModeToggle();
 renderModel();
 refreshResults();
+resizeTransportState(transportState.originCount, transportState.destinationCount);
+renderTransportGrid();
+refreshTransportResults();
+setActiveTab(activeTab);
