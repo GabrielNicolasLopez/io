@@ -73,6 +73,17 @@ const TRANSPORT_PRESETS = {
       [9, 3, 6, 4, 2, 7],
       [11, 8, 2, 5, 1, 9]
     ]
+  },
+  degenerate: {
+    originCount: 3,
+    destinationCount: 4,
+    offers: [200, 100, 500],
+    demands: [100, 100, 200, 400],
+    costs: [
+      [4, 6, 7, 5],
+      [12, 8, 9, 3],
+      [6, 2, 9, 2]
+    ]
   }
 };
 
@@ -100,15 +111,28 @@ const transportOriginCountInput = document.getElementById("transport-origin-coun
 const transportDestinationCountInput = document.getElementById("transport-destination-count");
 const transportLoadSimpleButton = document.getElementById("transport-load-simple-button");
 const transportLoadCircuitButton = document.getElementById("transport-load-circuit-button");
+const transportLoadDegenerateButton = document.getElementById("transport-load-degenerate-button");
 const transportClearButton = document.getElementById("transport-clear-button");
 const transportGrid = document.getElementById("transport-grid");
 const transportResults = document.getElementById("transport-results");
-const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
-const tabPanels = {
-  simplex: document.getElementById("panel-simplex"),
-  transport: document.getElementById("panel-transport")
-};
-let activeTab = "simplex";
+const hasSimplexPage = Boolean(
+  variableCountInput &&
+  constraintCountInput &&
+  objectiveToggle &&
+  objectiveExpression &&
+  constraintsList &&
+  simplexForm &&
+  resultSummary &&
+  graphPanel &&
+  iterationGroups
+);
+const hasTransportPage = Boolean(
+  transportOriginCountInput &&
+  transportDestinationCountInput &&
+  transportForm &&
+  transportGrid &&
+  transportResults
+);
 
 function scrollPageToTop() {
   window.scrollTo(0, 0);
@@ -120,26 +144,6 @@ function resetInitialScrollPosition() {
   requestAnimationFrame(() => {
     scrollPageToTop();
     requestAnimationFrame(scrollPageToTop);
-  });
-}
-
-function setActiveTab(nextTab) {
-  if (!tabPanels[nextTab] || activeTab === nextTab) {
-    return;
-  }
-
-  activeTab = nextTab;
-
-  tabButtons.forEach((button) => {
-    const isActive = button.dataset.tab === nextTab;
-    button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-selected", String(isActive));
-    button.tabIndex = isActive ? 0 : -1;
-  });
-
-  Object.entries(tabPanels).forEach(([tabName, panel]) => {
-    const isActive = tabName === nextTab;
-    panel.classList.toggle("hidden", !isActive);
   });
 }
 
@@ -838,6 +842,10 @@ function updateCompactInputWidth(input) {
 }
 
 function updateCompactInputWidths(root = simplexForm) {
+  if (!(root instanceof HTMLElement)) {
+    return;
+  }
+
   root.querySelectorAll(".compact-number-input").forEach((input) => {
     updateCompactInputWidth(input);
   });
@@ -863,6 +871,10 @@ function bumpCompactInput(input, delta) {
 }
 
 function renderObjectiveToggle() {
+  if (!(objectiveToggle instanceof HTMLButtonElement)) {
+    return;
+  }
+
   const isMinimization = state.objectiveType === "min";
   objectiveToggle.textContent = isMinimization ? "Minimizar" : "Maximizar";
   objectiveToggle.dataset.mode = state.objectiveType;
@@ -879,6 +891,10 @@ function renderDisplayModeToggle() {
 }
 
 function renderObjectiveExpression() {
+  if (!(objectiveExpression instanceof HTMLElement)) {
+    return;
+  }
+
   const prefix = state.objectiveType === "max" ? "Max Z =" : "Min Z =";
   const terms = state.objectiveCoefficients.map((coefficient, index) => `
     <span class="term">
@@ -906,6 +922,10 @@ function renderObjectiveExpression() {
 }
 
 function renderConstraintRows() {
+  if (!(constraintsList instanceof HTMLElement)) {
+    return;
+  }
+
   constraintsList.innerHTML = state.constraints.map((constraint, rowIndex) => {
     const terms = constraint.coefficients.map((coefficient, columnIndex) => `
       <span class="term">
@@ -958,6 +978,10 @@ function renderConstraintRows() {
 }
 
 function renderModel() {
+  if (!hasSimplexPage) {
+    return;
+  }
+
   variableCountInput.value = String(state.variableCount);
   constraintCountInput.value = String(state.constraintCount);
   renderObjectiveToggle();
@@ -4044,6 +4068,10 @@ function renderSnapshots(result) {
 }
 
 function clearResults() {
+  if (!hasSimplexPage) {
+    return;
+  }
+
   resultSummary.classList.add("empty-state");
   resultSummary.innerHTML = 'Ajusta el modelo para ver automaticamente las tablas, pivotes y la solucion.';
   graphPanel.classList.add("hidden");
@@ -4052,6 +4080,10 @@ function clearResults() {
 }
 
 function refreshResults() {
+  if (!hasSimplexPage) {
+    return;
+  }
+
   const result = solveModel();
   renderSummary(result);
   renderGraph(result);
@@ -4152,6 +4184,10 @@ function renderTransportPlainInput({ value, placeholder = "0", attributes = {} }
 }
 
 function renderTransportGrid() {
+  if (!hasTransportPage) {
+    return;
+  }
+
   const totalOffer = getTransportTotal(transportState.offers);
   const totalDemand = getTransportTotal(transportState.demands);
   const isBalanced = Math.abs(totalOffer - totalDemand) < EPSILON;
@@ -4233,6 +4269,10 @@ function renderTransportGrid() {
 }
 
 function updateTransportGridBalanceDisplay() {
+  if (!(transportGrid instanceof HTMLElement)) {
+    return;
+  }
+
   const balanceCell = transportGrid.querySelector("[data-transport-balance-total]");
 
   if (!(balanceCell instanceof HTMLElement)) {
@@ -4259,6 +4299,13 @@ function cloneTransportPlan(plan) {
   return {
     amounts: plan.amounts.map((row) => row.map((value) => value)),
     basics: plan.basics.map((row) => row.map((value) => value))
+  };
+}
+
+function createTransportPositiveBasisPlan(plan) {
+  return {
+    amounts: plan.amounts.map((row) => row.map((value) => value)),
+    basics: plan.amounts.map((row) => row.map((value) => value > EPSILON))
   };
 }
 
@@ -4484,9 +4531,11 @@ function buildColumnMinimumTransportPlan(offers, demands, costs) {
 
   const positiveAllocations = countTransportPositiveAllocations(plan);
   const expectedAllocations = offers.length + demands.length - 1;
+  const displayPlan = cloneTransportPlan(plan);
   ensureTransportNonDegenerate(plan, costs);
   return {
     plan,
+    displayPlan,
     totalCost: computeTransportCost(plan, costs),
     positiveAllocations,
     expectedAllocations,
@@ -4494,7 +4543,8 @@ function buildColumnMinimumTransportPlan(offers, demands, costs) {
   };
 }
 
-function computeTransportPotentials(plan, costs) {
+function computeTransportPotentials(plan, costs, options = {}) {
+  const { preserveUnknowns = false } = options;
   const rowCount = plan.amounts.length;
   const columnCount = plan.amounts[0].length;
   const rowPotentials = Array.from({ length: rowCount }, () => null);
@@ -4526,12 +4576,13 @@ function computeTransportPotentials(plan, costs) {
   }
 
   return {
-    u: rowPotentials.map((value) => value ?? 0),
-    v: columnPotentials.map((value) => value ?? 0)
+    u: preserveUnknowns ? rowPotentials : rowPotentials.map((value) => value ?? 0),
+    v: preserveUnknowns ? columnPotentials : columnPotentials.map((value) => value ?? 0)
   };
 }
 
-function computeTransportPotentialsWithSeed(plan, costs, seed) {
+function computeTransportPotentialsWithSeed(plan, costs, seed, options = {}) {
+  const { preserveUnknowns = false } = options;
   const rowCount = plan.amounts.length;
   const columnCount = plan.amounts[0].length;
   const rowPotentials = Array.from({ length: rowCount }, () => null);
@@ -4563,8 +4614,8 @@ function computeTransportPotentialsWithSeed(plan, costs, seed) {
   }
 
   return {
-    u: rowPotentials.map((value) => value ?? 0),
-    v: columnPotentials.map((value) => value ?? 0)
+    u: preserveUnknowns ? rowPotentials : rowPotentials.map((value) => value ?? 0),
+    v: preserveUnknowns ? columnPotentials : columnPotentials.map((value) => value ?? 0)
   };
 }
 
@@ -4757,6 +4808,9 @@ function solveTransportProblem() {
   const columnMinimum = buildColumnMinimumTransportPlan(offers, demands, costs);
   const optimization = optimizeTransportPlan(columnMinimum.plan, costs);
   const verification = createTransportVerification(columnMinimum.plan, costs, offers, demands);
+  const degenerateVerification = columnMinimum.isDegenerate
+    ? createTransportVerification(createTransportPositiveBasisPlan(columnMinimum.displayPlan), costs, offers, demands, { preserveUnknowns: true })
+    : null;
 
   return {
     valid: true,
@@ -4768,6 +4822,7 @@ function solveTransportProblem() {
     northwest,
     columnMinimum,
     verification,
+    degenerateVerification,
     optimization,
     optimalCost: computeTransportCost(optimization.optimalPlan, costs)
   };
@@ -4781,6 +4836,10 @@ function renderTransportPotentialList(potentials) {
 
 function formatTransportCellReference(rowIndex, columnIndex) {
   return `O${rowIndex + 1}-D${columnIndex + 1}`;
+}
+
+function renderTransportCaptionText(caption) {
+  return escapeHtml(caption).replaceAll("ε", '<span class="transport-epsilon-symbol">ε</span>');
 }
 
 function buildTransportThetaCellAdjustments(previousPlan, cycle, theta) {
@@ -4799,6 +4858,140 @@ function buildTransportThetaCellAdjustments(previousPlan, cycle, theta) {
   }, {});
 }
 
+function solveTransportLinearSystem(matrix, rhs) {
+  const size = rhs.length;
+  const augmented = matrix.map((row, rowIndex) => [...row, rhs[rowIndex]]);
+
+  for (let pivotIndex = 0; pivotIndex < size; pivotIndex += 1) {
+    let bestRow = pivotIndex;
+
+    for (let rowIndex = pivotIndex + 1; rowIndex < size; rowIndex += 1) {
+      if (Math.abs(augmented[rowIndex][pivotIndex]) > Math.abs(augmented[bestRow][pivotIndex])) {
+        bestRow = rowIndex;
+      }
+    }
+
+    if (Math.abs(augmented[bestRow][pivotIndex]) < EPSILON) {
+      return null;
+    }
+
+    if (bestRow !== pivotIndex) {
+      [augmented[pivotIndex], augmented[bestRow]] = [augmented[bestRow], augmented[pivotIndex]];
+    }
+
+    const pivotValue = augmented[pivotIndex][pivotIndex];
+
+    for (let columnIndex = pivotIndex; columnIndex <= size; columnIndex += 1) {
+      augmented[pivotIndex][columnIndex] /= pivotValue;
+    }
+
+    for (let rowIndex = 0; rowIndex < size; rowIndex += 1) {
+      if (rowIndex === pivotIndex) {
+        continue;
+      }
+
+      const factor = augmented[rowIndex][pivotIndex];
+
+      if (Math.abs(factor) < EPSILON) {
+        continue;
+      }
+
+      for (let columnIndex = pivotIndex; columnIndex <= size; columnIndex += 1) {
+        augmented[rowIndex][columnIndex] -= factor * augmented[pivotIndex][columnIndex];
+      }
+    }
+  }
+
+  return augmented.map((row) => row[size]);
+}
+
+function createTransportEpsilonDisplay(basePlan, completedPlan, costs) {
+  const rowCount = completedPlan.amounts.length;
+  const columnCount = completedPlan.amounts[0]?.length ?? 0;
+  const basicCells = [];
+
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+      if (completedPlan.basics[rowIndex][columnIndex]) {
+        basicCells.push([rowIndex, columnIndex]);
+      }
+    }
+  }
+
+  const matrix = [];
+  const rhs = [];
+
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+    matrix.push(basicCells.map(([basicRowIndex]) => basicRowIndex === rowIndex ? 1 : 0));
+    rhs.push(1);
+  }
+
+  for (let columnIndex = 0; columnIndex < columnCount - 1; columnIndex += 1) {
+    matrix.push(basicCells.map(([, basicColumnIndex]) => basicColumnIndex === columnIndex ? 1 : 0));
+    rhs.push(0);
+  }
+
+  const coefficients = solveTransportLinearSystem(matrix, rhs);
+
+  if (!coefficients) {
+    return {
+      symbolicAllocations: {},
+      symbolicOffers: [],
+      symbolicDemands: [],
+      totalCostLabel: `Z = ${formatValue(computeTransportCost(basePlan, costs))}`
+    };
+  }
+
+  const symbolicAllocations = {};
+  const formatEpsilonTerm = (coefficient) => {
+    const rounded = Math.abs(coefficient - Math.round(coefficient)) < EPSILON ? Math.round(coefficient) : coefficient;
+    const absoluteValue = Math.abs(rounded);
+
+    if (absoluteValue < EPSILON) {
+      return "";
+    }
+
+    if (Math.abs(absoluteValue - 1) < EPSILON) {
+      return "ε";
+    }
+
+    return `${formatValue(absoluteValue)}ε`;
+  };
+
+  basicCells.forEach(([rowIndex, columnIndex], variableIndex) => {
+    const coefficient = Math.abs(coefficients[variableIndex] - Math.round(coefficients[variableIndex])) < EPSILON
+      ? Math.round(coefficients[variableIndex])
+      : coefficients[variableIndex];
+    const baseAmount = basePlan.amounts[rowIndex][columnIndex];
+
+    if (Math.abs(coefficient) < EPSILON) {
+      return;
+    }
+
+    if (Math.abs(baseAmount) < EPSILON) {
+      symbolicAllocations[getTransportCycleCellKey(rowIndex, columnIndex)] = coefficient < 0
+        ? `-${formatEpsilonTerm(coefficient)}`
+        : formatEpsilonTerm(coefficient);
+      return;
+    }
+
+    symbolicAllocations[getTransportCycleCellKey(rowIndex, columnIndex)] = `${formatValue(baseAmount)} ${coefficient < 0 ? "-" : "+"} ${formatEpsilonTerm(coefficient)}`;
+  });
+
+  const symbolicOffers = Array.from({ length: rowCount }, (_, rowIndex) => `${formatValue(getTransportTotal(basePlan.amounts[rowIndex]))} + ε`);
+  const epsilonCostRounded = rowCount;
+  const epsilonCostTerm = formatEpsilonTerm(epsilonCostRounded);
+
+  return {
+    symbolicAllocations,
+    symbolicOffers,
+    symbolicDemands: [],
+    totalCostLabel: Math.abs(epsilonCostRounded) < EPSILON
+      ? `Z = ${formatValue(computeTransportCost(basePlan, costs))}`
+      : `Z = ${formatValue(computeTransportCost(basePlan, costs))} ${epsilonCostRounded < 0 ? "-" : "+"} ${epsilonCostTerm}`
+  };
+}
+
 function renderTransportThetaSteps(referencePlan, stepDetails) {
   if (!referencePlan || !stepDetails?.cycle?.length || !Number.isFinite(stepDetails.theta)) {
     return "";
@@ -4813,8 +5006,11 @@ function renderTransportThetaSteps(referencePlan, stepDetails) {
     value: referencePlan.amounts[rowIndex][columnIndex]
   }));
   const minusChoicesMarkup = minusEntries.map(({ rowIndex, columnIndex, value }) => `
-    <span class="transport-theta-choice ${Math.abs(value - theta) < EPSILON ? "is-min" : ""}">
-      ${formatTransportCellReference(rowIndex, columnIndex)} = ${formatValue(value)}
+    <span
+      class="transport-theta-choice ${Math.abs(value - theta) < EPSILON ? "is-min" : ""}"
+      title="${escapeHtml(formatTransportCellReference(rowIndex, columnIndex))}"
+    >
+      ${formatValue(value)}
     </span>
   `).join("");
   const plusUpdates = plusCells.map(([rowIndex, columnIndex]) => {
@@ -4884,17 +5080,17 @@ function buildTransportCycleAnnotations(cycle) {
 
   return cycle.reduce((annotations, [rowIndex, columnIndex], index) => {
     const [nextRowIndex, nextColumnIndex] = cycle[(index + 1) % cycle.length];
-    let arrow = "";
+    let direction = "right";
 
     if (nextRowIndex === rowIndex) {
-      arrow = nextColumnIndex > columnIndex ? "→" : "←";
+      direction = nextColumnIndex > columnIndex ? "right" : "left";
     } else if (nextColumnIndex === columnIndex) {
-      arrow = nextRowIndex > rowIndex ? "↓" : "↑";
+      direction = nextRowIndex > rowIndex ? "down" : "up";
     }
 
     annotations[getTransportCycleCellKey(rowIndex, columnIndex)] = {
       sign: index % 2 === 0 ? "+" : "-",
-      arrow,
+      direction,
       isStart: index === 0
     };
 
@@ -4906,7 +5102,11 @@ function renderTransportAllocationTable(title, plan, costs, offers, demands, tot
   const {
     scope = "transport-default",
     highlightOfferRow = false,
-    thetaAdjustments = {}
+    thetaAdjustments = {},
+    symbolicAllocations = {},
+    symbolicOffers = [],
+    symbolicDemands = [],
+    totalCostLabel = null
   } = options;
   const hasThetaAdjustments = Object.keys(thetaAdjustments).length > 0;
   const headerMarkup = Array.from({ length: demands.length }, (_, index) => `<th>D${index + 1}</th>`).join("");
@@ -4915,12 +5115,14 @@ function renderTransportAllocationTable(title, plan, costs, offers, demands, tot
       <th class="transport-row-label">O${rowIndex + 1}</th>
       ${row.map((amount, columnIndex) => {
         const adjustment = thetaAdjustments[getTransportCycleCellKey(rowIndex, columnIndex)];
+        const symbolicAllocation = symbolicAllocations[getTransportCycleCellKey(rowIndex, columnIndex)];
         const hasPositiveAllocation = Math.abs(amount) >= EPSILON;
-        const shouldShowAllocation = Math.abs(amount) >= EPSILON || Boolean(adjustment);
+        const shouldShowAllocation = Math.abs(amount) >= EPSILON || Boolean(adjustment) || Boolean(symbolicAllocation);
+        const hasSymbolicAllocation = Boolean(symbolicAllocation);
 
         return `
         <td
-          class="transport-allocation-cell ${hasPositiveAllocation ? "has-allocation" : ""} ${adjustment ? "has-adjustment" : ""}"
+          class="transport-allocation-cell ${hasPositiveAllocation ? "has-allocation" : ""} ${hasSymbolicAllocation ? "has-symbolic-allocation" : ""} ${adjustment ? "has-adjustment" : ""}"
           data-solution-scope="${escapeHtml(scope)}"
           data-solution-row="${rowIndex}"
           data-solution-col="${columnIndex}"
@@ -4931,7 +5133,7 @@ function renderTransportAllocationTable(title, plan, costs, offers, demands, tot
             <div class="transport-cell-stack">
               <span class="transport-cell-cost">c = ${formatValue(costs[rowIndex][columnIndex])}</span>
               ${adjustment ? `<span class="transport-cell-adjustment transport-cell-adjustment-${adjustment.sign === "+" ? "plus" : "minus"}">${escapeHtml(adjustment.expression)}</span>` : ""}
-              <span class="transport-cell-allocation ${Math.abs(amount) < EPSILON ? "is-zero" : ""}">${formatValue(amount)}</span>
+              <span class="transport-cell-allocation ${Math.abs(amount) < EPSILON ? "is-zero" : ""} ${symbolicAllocation ? "transport-cell-symbolic" : ""}">${symbolicAllocation ?? formatValue(amount)}</span>
             </div>
           ` : '<span class="transport-cell-dash">-</span>'}
         </td>
@@ -4941,13 +5143,13 @@ function renderTransportAllocationTable(title, plan, costs, offers, demands, tot
         class="${highlightOfferRow ? "transport-offer-hover-cell" : ""}"
         ${highlightOfferRow ? `data-offer-highlight="${rowIndex}" data-offer-scope="${escapeHtml(scope)}"` : ""}
       >
-        ${formatValue(offers[rowIndex])}
+        ${symbolicOffers[rowIndex] ?? formatValue(offers[rowIndex])}
       </td>
     </tr>
   `).join("");
 
-  const demandMarkup = demands.map((value) => `<td>${formatValue(value)}</td>`).join("");
-  const captionMarkup = title ? `<p class="transport-table-caption">${escapeHtml(title)}</p>` : "";
+  const demandMarkup = demands.map((value, columnIndex) => `<td>${symbolicDemands[columnIndex] ?? formatValue(value)}</td>`).join("");
+  const captionMarkup = title ? `<p class="transport-table-caption">${renderTransportCaptionText(title)}</p>` : "";
 
   return `
     <div class="transport-card-grid">
@@ -4967,7 +5169,7 @@ function renderTransportAllocationTable(title, plan, costs, offers, demands, tot
               <th class="transport-total-label">Demanda</th>
               ${demandMarkup}
               <td class="transport-balance-cell transport-total-cost-cell transport-z-hover-cell is-valid" data-z-scope="${escapeHtml(scope)}">
-                <strong>Z = ${formatValue(totalCost)}</strong>
+                <strong>${totalCostLabel ?? `Z = ${formatValue(totalCost)}`}</strong>
               </td>
             </tr>
           </tbody>
@@ -5017,7 +5219,7 @@ function renderTransportDegeneracyCheck(solution) {
     <div class="transport-degeneracy-check ${solution.isDegenerate ? "is-degenerate" : "is-normal"}">
       <p>
         Validación de asignaciones:<br>
-        Fórumula: m + n - 1 = asignaciones esperadas<br><br>
+        Fórmula: m + n - 1 = asignaciones esperadas<br><br>
         ${transportState.originCount} + ${transportState.destinationCount} - 1 = ${solution.expectedAllocations}.<br>
         Asignaciones reales = ${solution.positiveAllocations}.<br><br>
         Transporte ${solution.isDegenerate ? "degenerado" : "normal"}.
@@ -5026,28 +5228,57 @@ function renderTransportDegeneracyCheck(solution) {
   `;
 }
 
-function createTransportVerification(plan, costs, offers, demands) {
+function renderTransportNormalizedCheck(plan) {
+  const expectedAllocations = plan.amounts.length + plan.amounts[0].length - 1;
+  const basicAllocations = countTransportBasics(plan);
+  return `
+    <div class="transport-degeneracy-check is-normal">
+      <p>
+        Verificación después de agregar ε:<br>
+        Fórmula: m + n - 1 = asignaciones esperadas<br><br>
+        ${plan.amounts.length} + ${plan.amounts[0].length} - 1 = ${expectedAllocations}.<br>
+        Asignaciones con ε = ${basicAllocations}.<br><br>
+        Transporte ${basicAllocations === expectedAllocations ? "normal" : "degenerado"}.
+      </p>
+    </div>
+  `;
+}
+
+function createTransportVerification(plan, costs, offers, demands, options = {}) {
+  const { preserveUnknowns = false } = options;
   const seed = Math.abs(Math.round(
     costs.flat().reduce((sum, value) => sum + value, 0)
     + getTransportTotal(offers)
     + getTransportTotal(demands)
   )) % 11;
-  const potentials = computeTransportPotentialsWithSeed(plan, costs, seed);
-  const sums = costs.map((row, rowIndex) => row.map((_, columnIndex) => potentials.u[rowIndex] + potentials.v[columnIndex]));
-  const reduced = costs.map((row, rowIndex) => row.map((cost, columnIndex) => sums[rowIndex][columnIndex] - cost));
-  const isOptimal = reduced.every((row) => row.every((value) => value <= EPSILON));
+  const potentials = computeTransportPotentialsWithSeed(plan, costs, seed, { preserveUnknowns });
+  const sums = costs.map((row, rowIndex) => row.map((_, columnIndex) => (
+    potentials.u[rowIndex] != null && potentials.v[columnIndex] != null
+      ? potentials.u[rowIndex] + potentials.v[columnIndex]
+      : (plan.basics[rowIndex][columnIndex] ? costs[rowIndex][columnIndex] : null)
+  )));
+  const reduced = costs.map((row, rowIndex) => row.map((cost, columnIndex) => (
+    sums[rowIndex][columnIndex] == null ? null : sums[rowIndex][columnIndex] - cost
+  )));
+  const hasInsufficientData = potentials.u.some((value) => value == null) || potentials.v.some((value) => value == null);
+  const isOptimal = !hasInsufficientData && reduced.every((row) => row.every((value) => value <= EPSILON));
 
   return {
     seed,
     potentials,
     sums,
     reduced,
+    hasInsufficientData,
     isOptimal
   };
 }
 
 function renderTransportPotentialTable(verification, costs, plan, options = {}) {
-  const { scope = "transport-verification" } = options;
+  const {
+    scope = "transport-verification",
+    caption = "Verificación con fila y columna agregadas",
+    note = ""
+  } = options;
   const colgroupMarkup = `
     <colgroup>
       <col class="transport-comparison-col-label">
@@ -5061,26 +5292,31 @@ function renderTransportPotentialTable(verification, costs, plan, options = {}) 
       <th class="transport-row-label">O${rowIndex + 1}</th>
       ${row.map((_, columnIndex) => `
         <td
-          class="transport-verification-cell ${plan.basics[rowIndex][columnIndex] ? "is-basic" : ""}"
+          class="transport-verification-cell ${plan.basics[rowIndex][columnIndex] ? "is-basic" : ""} ${verification.sums[rowIndex][columnIndex] == null ? "is-unresolved" : ""}"
           data-verification-scope="${escapeHtml(scope)}"
           data-verification-row="${rowIndex}"
           data-verification-col="${columnIndex}"
         >
           <span class="transport-verification-stack">
-            <span class="transport-cell-allocation">${formatValue(verification.sums[rowIndex][columnIndex])}</span>
+            <span class="transport-cell-allocation">${verification.sums[rowIndex][columnIndex] == null ? "" : formatValue(verification.sums[rowIndex][columnIndex])}</span>
             <span class="transport-verification-subtract" data-verification-subtract></span>
           </span>
         </td>
       `).join("")}
-      <td class="transport-balance-cell is-valid">${formatValue(verification.potentials.u[rowIndex])}</td>
+      <td class="transport-balance-cell is-valid">${verification.potentials.u[rowIndex] == null ? "" : formatValue(verification.potentials.u[rowIndex])}</td>
     </tr>
   `).join("");
 
-  const footerMarkup = verification.potentials.v.map((value) => `<td class="transport-balance-cell is-valid">${formatValue(value)}</td>`).join("");
+  const footerMarkup = verification.potentials.v.map((value) => `<td class="transport-balance-cell is-valid">${value == null ? "" : formatValue(value)}</td>`).join("");
+  const noteMarkup = note ? `
+    <div class="transport-degeneracy-check is-degenerate">
+      <p>${escapeHtml(note)}</p>
+    </div>
+  ` : "";
 
   return `
     <div class="transport-card-grid">
-      <p class="transport-table-caption">Verificación con fila y columna agregadas</p>
+      <p class="transport-table-caption">${renderTransportCaptionText(caption)}</p>
       <div class="transport-input-wrap">
         <table class="transport-table transport-comparison-table">
           ${colgroupMarkup}
@@ -5101,6 +5337,7 @@ function renderTransportPotentialTable(verification, costs, plan, options = {}) 
           </tbody>
         </table>
       </div>
+      ${noteMarkup}
     </div>
   `;
 }
@@ -5111,6 +5348,10 @@ function renderTransportReducedMatrix(verification, costs, options = {}) {
     totalCost = null,
     scope = "transport-verification",
     referencePlan = null,
+    referenceSymbolicAllocations = {},
+    referenceSymbolicOffers = [],
+    referenceSymbolicDemands = [],
+    referenceTotalCostLabel = null,
     offers = [],
     demands = [],
     stepDetails = null
@@ -5127,7 +5368,11 @@ function renderTransportReducedMatrix(verification, costs, options = {}) {
       <div class="transport-circuit-reference">
         ${renderTransportAllocationTable("Solución actual, no la óptima", referencePlan, costs, offers, demands, totalCost ?? 0, {
           scope: `${scope}-reference`,
-          highlightOfferRow: false
+          highlightOfferRow: false,
+          symbolicAllocations: referenceSymbolicAllocations,
+          symbolicOffers: referenceSymbolicOffers,
+          symbolicDemands: referenceSymbolicDemands,
+          totalCostLabel: referenceTotalCostLabel
         })}
       </div>
     `
@@ -5168,7 +5413,14 @@ function renderTransportReducedMatrix(verification, costs, options = {}) {
             ${cycleMeta ? `
               <div class="transport-cycle-flags" aria-hidden="true">
                 <span class="transport-cycle-sign transport-cycle-sign-${cycleMeta.sign === "+" ? "plus" : "minus"}">${cycleMeta.sign}</span>
-                <span class="transport-cycle-arrow ${cycleMeta.isStart ? "transport-cycle-arrow-start" : ""}">${cycleMeta.arrow}</span>
+                <span class="transport-cycle-arrow transport-cycle-arrow-${cycleMeta.direction} ${cycleMeta.isStart ? "transport-cycle-arrow-start" : ""}">
+                  <span class="transport-cycle-arrow-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" focusable="false">
+                      <path d="M3 8h8"></path>
+                      <path d="M8.75 4.75 12 8l-3.25 3.25"></path>
+                    </svg>
+                  </span>
+                </span>
               </div>
             ` : ""}
             ${formatValue(value)}
@@ -5305,10 +5557,18 @@ function renderTransportOptimizationContinuation(result) {
 }
 
 function renderTransportResults(result) {
+  if (!(transportResults instanceof HTMLElement)) {
+    return;
+  }
+
   if (!result.valid) {
     transportResults.innerHTML = '<div class="transport-card transport-empty"><p class="transport-empty">Ajusta datos hasta que oferta total y demanda total coincidan.</p></div>';
     return;
   }
+
+  const degenerateEpsilonDisplay = result.degenerateVerification
+    ? createTransportEpsilonDisplay(result.columnMinimum.displayPlan, result.columnMinimum.plan, result.costs)
+    : null;
 
   const cards = [
     `
@@ -5340,14 +5600,32 @@ function renderTransportResults(result) {
         <div class="transport-card-copy">
           <h3>Verificacion de optimalidad</h3>
         </div>
+        ${result.degenerateVerification ? renderTransportPotentialTable(result.degenerateVerification, result.costs, createTransportPositiveBasisPlan(result.columnMinimum.displayPlan), {
+          scope: "verification-incomplete",
+          note: "No hay suficientes datos para completar esta tabla. Como el transporte es degenerado, hay que agregar ε a la oferta."
+        }) : ""}
+        ${result.degenerateVerification ? renderTransportAllocationTable("Solución 2 redibujada con ε", result.columnMinimum.plan, result.costs, result.offers, result.demands, result.columnMinimum.totalCost, {
+          scope: "verification-epsilon-plan",
+          highlightOfferRow: true,
+          symbolicAllocations: degenerateEpsilonDisplay?.symbolicAllocations ?? {},
+          symbolicOffers: degenerateEpsilonDisplay?.symbolicOffers ?? [],
+          symbolicDemands: degenerateEpsilonDisplay?.symbolicDemands ?? [],
+          totalCostLabel: degenerateEpsilonDisplay?.totalCostLabel ?? null
+        }) : ""}
+        ${result.degenerateVerification ? renderTransportNormalizedCheck(result.columnMinimum.plan) : ""}
         ${renderTransportPotentialTable(result.verification, result.costs, result.columnMinimum.plan, {
-          scope: "verification-base"
+          scope: "verification-base",
+          caption: result.degenerateVerification ? "Verificación para continuar agregando ε" : "Verificación con fila y columna agregadas"
         })}
         ${renderTransportReducedMatrix(result.verification, result.costs, {
           scope: "verification-base",
           cycleAnnotations: buildTransportCycleAnnotations(result.optimization.iterations[0]?.cycle),
           totalCost: result.columnMinimum.totalCost,
           referencePlan: result.columnMinimum.plan,
+          referenceSymbolicAllocations: degenerateEpsilonDisplay?.symbolicAllocations ?? {},
+          referenceSymbolicOffers: degenerateEpsilonDisplay?.symbolicOffers ?? [],
+          referenceSymbolicDemands: degenerateEpsilonDisplay?.symbolicDemands ?? [],
+          referenceTotalCostLabel: degenerateEpsilonDisplay?.totalCostLabel ?? null,
           offers: result.offers,
           demands: result.demands,
           stepDetails: result.optimization.iterations[0] ?? null
@@ -5362,37 +5640,57 @@ function renderTransportResults(result) {
 }
 
 function refreshTransportResults() {
+  if (!hasTransportPage) {
+    return;
+  }
+
   const result = solveTransportProblem();
   renderTransportResults(result);
 }
 
 function clearTransportOfferHighlights() {
+  if (!(transportResults instanceof HTMLElement)) {
+    return;
+  }
+
   transportResults.querySelectorAll(".is-offer-highlighted").forEach((cell) => {
     cell.classList.remove("is-offer-highlighted");
   });
 }
 
 function applyTransportOfferHighlights(scope, row) {
+  if (!(transportResults instanceof HTMLElement)) {
+    return;
+  }
+
   clearTransportOfferHighlights();
 
   transportResults.querySelectorAll(`[data-offer-scope="${scope}"][data-offer-highlight="${row}"]`).forEach((cell) => {
     cell.classList.add("is-offer-highlighted");
   });
 
-  transportResults.querySelectorAll(`[data-solution-scope="${scope}"][data-solution-row="${row}"].has-allocation`).forEach((cell) => {
+  transportResults.querySelectorAll(`[data-solution-scope="${scope}"][data-solution-row="${row}"].has-allocation, [data-solution-scope="${scope}"][data-solution-row="${row}"].has-symbolic-allocation`).forEach((cell) => {
     cell.classList.add("is-offer-highlighted");
   });
 }
 
 function applyTransportZHighlights(scope) {
+  if (!(transportResults instanceof HTMLElement)) {
+    return;
+  }
+
   clearTransportOfferHighlights();
 
-  transportResults.querySelectorAll(`[data-solution-scope="${scope}"].has-allocation, [data-z-scope="${scope}"]`).forEach((cell) => {
+  transportResults.querySelectorAll(`[data-solution-scope="${scope}"].has-allocation, [data-solution-scope="${scope}"].has-symbolic-allocation, [data-z-scope="${scope}"]`).forEach((cell) => {
     cell.classList.add("is-offer-highlighted");
   });
 }
 
 function clearTransportVerificationHighlights() {
+  if (!(transportResults instanceof HTMLElement)) {
+    return;
+  }
+
   transportResults.querySelectorAll(".is-verification-hovered").forEach((cell) => {
     cell.classList.remove("is-verification-hovered");
   });
@@ -5403,6 +5701,10 @@ function clearTransportVerificationHighlights() {
 }
 
 function applyTransportVerificationHover(scope, row, column, costDisplay) {
+  if (!(transportResults instanceof HTMLElement)) {
+    return;
+  }
+
   clearTransportVerificationHighlights();
 
   transportResults.querySelectorAll(
@@ -5447,7 +5749,7 @@ function syncTransportDimensionsFromInputs({ normalize = false } = {}) {
   refreshTransportResults();
 }
 
-objectiveToggle.addEventListener("click", () => {
+objectiveToggle?.addEventListener("click", () => {
   state.objectiveType = state.objectiveType === "max" ? "min" : "max";
   renderObjectiveToggle();
   renderObjectiveExpression();
@@ -5468,7 +5770,7 @@ displayModeButtons.forEach((button) => {
   });
 });
 
-[variableCountInput, constraintCountInput].forEach((input) => {
+[variableCountInput, constraintCountInput].filter((input) => input instanceof HTMLInputElement).forEach((input) => {
   input.addEventListener("input", () => {
     syncDimensionsFromInputs();
   });
@@ -5478,7 +5780,7 @@ displayModeButtons.forEach((button) => {
   });
 });
 
-[transportOriginCountInput, transportDestinationCountInput].forEach((input) => {
+[transportOriginCountInput, transportDestinationCountInput].filter((input) => input instanceof HTMLInputElement).forEach((input) => {
   input.addEventListener("input", () => {
     syncTransportDimensionsFromInputs();
   });
@@ -5488,7 +5790,7 @@ displayModeButtons.forEach((button) => {
   });
 });
 
-simplexForm.addEventListener("input", (event) => {
+simplexForm?.addEventListener("input", (event) => {
   const target = event.target;
 
   if (!(target instanceof HTMLInputElement)) {
@@ -5513,7 +5815,7 @@ simplexForm.addEventListener("input", (event) => {
   refreshResults();
 });
 
-simplexForm.addEventListener("click", (event) => {
+simplexForm?.addEventListener("click", (event) => {
   const target = event.target;
 
   if (!(target instanceof HTMLElement)) {
@@ -5547,7 +5849,7 @@ simplexForm.addEventListener("click", (event) => {
   refreshResults();
 });
 
-transportForm.addEventListener("input", (event) => {
+transportForm?.addEventListener("input", (event) => {
   const target = event.target;
 
   if (!(target instanceof HTMLInputElement)) {
@@ -5578,7 +5880,7 @@ transportForm.addEventListener("input", (event) => {
   refreshTransportResults();
 });
 
-transportForm.addEventListener("click", (event) => {
+transportForm?.addEventListener("click", (event) => {
   const target = event.target;
 
   if (!(target instanceof HTMLElement)) {
@@ -5613,8 +5915,12 @@ transportLoadCircuitButton?.addEventListener("click", () => {
   applyTransportPreset(TRANSPORT_PRESETS.circuit);
 });
 
+transportLoadDegenerateButton?.addEventListener("click", () => {
+  applyTransportPreset(TRANSPORT_PRESETS.degenerate);
+});
+
 ["mouseover", "focusin"].forEach((eventName) => {
-  transportResults.addEventListener(eventName, (event) => {
+  transportResults?.addEventListener(eventName, (event) => {
     const target = event.target;
 
     if (!(target instanceof HTMLElement)) {
@@ -5639,7 +5945,7 @@ transportLoadCircuitButton?.addEventListener("click", () => {
 });
 
 ["mouseout", "focusout"].forEach((eventName) => {
-  transportResults.addEventListener(eventName, (event) => {
+  transportResults?.addEventListener(eventName, (event) => {
     const target = event.target;
 
     if (!(target instanceof HTMLElement)) {
@@ -5676,7 +5982,7 @@ transportLoadCircuitButton?.addEventListener("click", () => {
 });
 
 ["mouseover", "focusin"].forEach((eventName) => {
-  transportResults.addEventListener(eventName, (event) => {
+  transportResults?.addEventListener(eventName, (event) => {
     const target = event.target;
 
     if (!(target instanceof HTMLElement)) {
@@ -5699,7 +6005,7 @@ transportLoadCircuitButton?.addEventListener("click", () => {
 });
 
 ["mouseout", "focusout"].forEach((eventName) => {
-  transportResults.addEventListener(eventName, (event) => {
+  transportResults?.addEventListener(eventName, (event) => {
     const target = event.target;
 
     if (!(target instanceof HTMLElement)) {
@@ -5723,7 +6029,7 @@ transportLoadCircuitButton?.addEventListener("click", () => {
 });
 
 ["mouseover", "focusin"].forEach((eventName) => {
-  transportResults.addEventListener(eventName, (event) => {
+  transportResults?.addEventListener(eventName, (event) => {
     const target = event.target;
 
     if (!(target instanceof HTMLElement)) {
@@ -5750,7 +6056,7 @@ transportLoadCircuitButton?.addEventListener("click", () => {
 });
 
 ["mouseout", "focusout"].forEach((eventName) => {
-  transportResults.addEventListener(eventName, (event) => {
+  transportResults?.addEventListener(eventName, (event) => {
     const target = event.target;
 
     if (!(target instanceof HTMLElement)) {
@@ -5777,29 +6083,8 @@ transportLoadCircuitButton?.addEventListener("click", () => {
   });
 });
 
-tabButtons.forEach((button, index) => {
-  button.tabIndex = index === 0 ? 0 : -1;
-
-  button.addEventListener("click", () => {
-    setActiveTab(button.dataset.tab);
-  });
-
-  button.addEventListener("keydown", (event) => {
-    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") {
-      return;
-    }
-
-    event.preventDefault();
-    const direction = event.key === "ArrowRight" ? 1 : -1;
-    const nextIndex = (index + direction + tabButtons.length) % tabButtons.length;
-    const nextButton = tabButtons[nextIndex];
-    setActiveTab(nextButton.dataset.tab);
-    nextButton.focus();
-  });
-});
-
 ["mouseover", "focusin"].forEach((eventName) => {
-  iterationGroups.addEventListener(eventName, (event) => {
+  iterationGroups?.addEventListener(eventName, (event) => {
     const target = event.target;
 
     if (!(target instanceof HTMLElement)) {
@@ -5817,7 +6102,7 @@ tabButtons.forEach((button, index) => {
 });
 
 ["mouseout", "focusout"].forEach((eventName) => {
-  iterationGroups.addEventListener(eventName, (event) => {
+  iterationGroups?.addEventListener(eventName, (event) => {
     const target = event.target;
 
     if (!(target instanceof HTMLElement)) {
@@ -5851,11 +6136,15 @@ tabButtons.forEach((button, index) => {
   });
 });
 
-resizeState(state.variableCount, state.constraintCount);
-renderDisplayModeToggle();
-renderModel();
-refreshResults();
-resizeTransportState(transportState.originCount, transportState.destinationCount);
-renderTransportGrid();
-refreshTransportResults();
-setActiveTab(activeTab);
+if (hasSimplexPage) {
+  resizeState(state.variableCount, state.constraintCount);
+  renderDisplayModeToggle();
+  renderModel();
+  refreshResults();
+}
+
+if (hasTransportPage) {
+  resizeTransportState(transportState.originCount, transportState.destinationCount);
+  renderTransportGrid();
+  refreshTransportResults();
+}

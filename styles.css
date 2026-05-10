@@ -39,6 +39,7 @@
 
 html {
   scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -46,6 +47,7 @@ body {
   position: relative;
   min-height: 100vh;
   overflow-x: clip;
+  overflow-y: auto;
   font-family: "Manrope", sans-serif;
   color: var(--text);
   background:
@@ -204,12 +206,15 @@ code {
 }
 
 .tab-shell,
-.tab-panel {
+.tab-panel,
+.route-shell,
+.route-panel {
   display: grid;
   gap: 22px;
 }
 
-.tab-shell {
+.tab-shell,
+.route-shell {
   padding: 20px;
   border-radius: 36px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
@@ -217,7 +222,8 @@ code {
   box-shadow: var(--shadow);
 }
 
-.tab-strip {
+.tab-strip,
+.route-strip {
   display: inline-flex;
   align-items: end;
   gap: 14px;
@@ -228,8 +234,12 @@ code {
   overflow-y: hidden;
 }
 
-.tab-button {
+.tab-button,
+.route-link {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 74px;
   min-width: 154px;
   padding: 18px 24px 16px;
@@ -243,19 +253,23 @@ code {
   font-size: 0.96rem;
   font-weight: 800;
   cursor: pointer;
+  text-decoration: none;
   transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.16);
 }
 
 .tab-button:hover,
-.tab-button:focus-visible {
+.tab-button:focus-visible,
+.route-link:hover,
+.route-link:focus-visible {
   outline: none;
   color: var(--text);
   border-color: rgba(232, 232, 232, 0.24);
   transform: translateY(2px);
 }
 
-.tab-button.is-active {
+.tab-button.is-active,
+.route-link.is-active {
   min-height: 38px;
   padding-top: 10px;
   padding-bottom: 10px;
@@ -266,6 +280,81 @@ code {
   color: var(--text);
   transform: translateY(0);
   box-shadow: 0 18px 34px rgba(0, 0, 0, 0.22);
+}
+
+.topic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+.topic-link-card {
+  display: grid;
+  gap: 12px;
+  grid-template-rows: auto minmax(4.2rem, auto) minmax(6.2rem, 1fr) auto;
+  min-height: 210px;
+  padding: 24px;
+  border-radius: 26px;
+  border: 1px solid var(--panel-border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  color: var(--text);
+  text-decoration: none;
+  box-shadow: var(--shadow);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.topic-link-card:hover,
+.topic-link-card:focus-visible {
+  outline: none;
+  transform: translateY(-2px);
+  border-color: rgba(232, 232, 232, 0.2);
+}
+
+.topic-link-card h2,
+.topic-link-card h3 {
+  margin: 0;
+  font-family: "Fraunces", serif;
+  font-size: 1.7rem;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.topic-link-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.topic-card-note {
+  align-self: end;
+  width: fit-content;
+  margin-top: 4px;
+  color: var(--accent-strong);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.topic-tag {
+  width: fit-content;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.topic-link-card.is-wip .topic-tag {
+  background: rgba(226, 179, 107, 0.14);
+  color: #f0c98f;
+}
+
+.topic-link-card.is-wip .topic-card-note {
+  color: #f0c98f;
 }
 
 .composer,
@@ -290,6 +379,11 @@ code {
 .transport-panel {
   display: grid;
   gap: 28px;
+}
+
+.wip-panel {
+  min-height: 280px;
+  align-content: start;
 }
 
 .transport-form,
@@ -547,10 +641,17 @@ code {
 
 .transport-table-caption {
   margin: 0;
-  font-size: 0.82rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-family: "Fraunces", serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  color: var(--text);
+  text-transform: none;
+}
+
+.transport-epsilon-symbol {
+  text-transform: none;
 }
 
 .transport-cell-stack {
@@ -585,6 +686,12 @@ code {
 
 .transport-cell-allocation {
   font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.transport-cell-allocation.transport-cell-symbolic,
+.transport-cell-allocation.transport-cell-symbolic.is-zero {
+  color: #8ad8ff;
   font-weight: 800;
 }
 
@@ -694,11 +801,51 @@ code {
 .transport-cycle-arrow {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
+  line-height: 1;
 }
 
 .transport-cycle-arrow-start {
   background: rgba(138, 216, 255, 0.32);
   color: #d7f2ff;
+}
+
+.transport-cycle-arrow-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 0.92rem;
+  height: 0.92rem;
+  transform-origin: center;
+}
+
+.transport-cycle-arrow-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.transport-cycle-arrow-icon path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.15;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.transport-cycle-arrow-right .transport-cycle-arrow-icon {
+  transform: rotate(0deg);
+}
+
+.transport-cycle-arrow-down .transport-cycle-arrow-icon {
+  transform: rotate(90deg);
+}
+
+.transport-cycle-arrow-left .transport-cycle-arrow-icon {
+  transform: rotate(180deg);
+}
+
+.transport-cycle-arrow-up .transport-cycle-arrow-icon {
+  transform: rotate(-90deg);
 }
 
 .transport-verification-cell.is-basic {
@@ -2260,22 +2407,26 @@ select:focus {
     padding-top: 18px;
   }
 
-  .tab-shell {
+  .tab-shell,
+  .route-shell {
     padding: 14px;
   }
 
-  .tab-strip {
+  .tab-strip,
+  .route-strip {
     gap: 10px;
     padding: 0 8px;
   }
 
-  .tab-button {
+  .tab-button,
+  .route-link {
     min-width: 134px;
     min-height: 68px;
     padding: 16px 18px 14px;
   }
 
-  .tab-button.is-active {
+  .tab-button.is-active,
+  .route-link.is-active {
     min-height: 36px;
     padding-top: 9px;
     padding-bottom: 9px;

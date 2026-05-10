@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#09110f">
+  <title>Investigacion Operativa | Simplex</title>
+  <script>
+    if ("scrollRestoration" in history) {
+      history.scrollRestoration = "manual";
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <main class="workspace">
+      <section class="page-header reveal">
+        <div class="page-header-bar">
+          <div class="section-heading">
+            <p class="section-kicker">UTN FRBA</p>
+            <h1>Investigacion Operativa</h1>
+          </div>
+          <div class="display-mode-toggle" role="group" aria-label="Formato numerico">
+            <span class="display-mode-label">Formato</span>
+            <div class="display-mode-buttons">
+              <button id="display-decimal" class="display-mode-button" type="button" data-display-mode="decimal" aria-pressed="false">Decimal</button>
+              <button id="display-fraction" class="display-mode-button is-active" type="button" data-display-mode="fraction" aria-pressed="true">Fraccion</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="route-shell reveal">
+        <nav class="route-strip" aria-label="Temas">
+          <a class="route-link" href="../">Inicio</a>
+          <a class="route-link is-active" href="../simplex/">Simplex</a>
+          <a class="route-link" href="../transporte/">Transporte</a>
+          <a class="route-link" href="../asignacion/">Asignacion</a>
+          <a class="route-link" href="../decision/">Teoria de Decision</a>
+          <a class="route-link" href="../juegos/">Teoria de Juegos</a>
+        </nav>
+
+        <div class="route-panel">
+          <section class="composer">
+            <form id="simplex-form" class="model-form">
+              <section class="equation-zone">
+                <div class="zone-head compact-zone-head">
+                  <p class="zone-label">Funcion objetivo</p>
+                  <div class="field inline-field objective-mode-field">
+                    <span>Modo</span>
+                    <button id="objective-toggle" class="button secondary objective-toggle" type="button" aria-label="Cambiar entre maximizar y minimizar"></button>
+                  </div>
+                </div>
+                <div id="objective-expression" class="equation-grid"></div>
+              </section>
+
+              <section class="equation-zone">
+                <div class="zone-head compact-zone-head">
+                  <div class="dimension-bar embedded-dimension-bar" role="group" aria-label="Dimensiones del modelo">
+                    <label class="field inline-count-field">
+                      <span>Variables</span>
+                      <input id="variable-count" class="compact-number-input dimension-input" type="number" min="1" max="10" step="1" value="2" aria-label="Cantidad de variables">
+                      <span class="mini-stepper">
+                        <button class="mini-stepper-button" type="button" data-delta="1" aria-label="Aumentar cantidad de variables" title="Aumentar cantidad de variables">&#9650;</button>
+                        <button class="mini-stepper-button" type="button" data-delta="-1" aria-label="Reducir cantidad de variables" title="Reducir cantidad de variables">&#9660;</button>
+                      </span>
+                    </label>
+                    <label class="field inline-count-field">
+                      <span>Restricciones</span>
+                      <input id="constraint-count" class="compact-number-input dimension-input" type="number" min="1" max="10" step="1" value="4" aria-label="Cantidad de restricciones">
+                      <span class="mini-stepper">
+                        <button class="mini-stepper-button" type="button" data-delta="1" aria-label="Aumentar cantidad de restricciones" title="Aumentar cantidad de restricciones">&#9650;</button>
+                        <button class="mini-stepper-button" type="button" data-delta="-1" aria-label="Reducir cantidad de restricciones" title="Reducir cantidad de restricciones">&#9660;</button>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+                <div id="constraints-list" class="constraint-list"></div>
+              </section>
+            </form>
+          </section>
+
+          <div id="result-summary" class="result-summary empty-state">
+            Ajusta el modelo para ver automaticamente las tablas, pivotes y la solucion.
+          </div>
+
+          <section class="results" id="results-section">
+            <div class="section-heading results-heading">
+              <p class="section-kicker">Resultado</p>
+              <h2>Graficos e Iteraciones</h2>
+            </div>
+
+            <div id="graph-panel" class="graph-panel hidden"></div>
+            <div id="iteration-groups" class="iteration-groups"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="../script.js"></script>
+</body>
+</html>

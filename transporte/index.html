@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#09110f">
+  <title>Investigacion Operativa | Transporte</title>
+  <script>
+    if ("scrollRestoration" in history) {
+      history.scrollRestoration = "manual";
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <main class="workspace">
+      <section class="page-header reveal">
+        <div class="page-header-bar">
+          <div class="section-heading">
+            <p class="section-kicker">UTN FRBA</p>
+            <h1>Investigacion Operativa</h1>
+          </div>
+        </div>
+      </section>
+
+      <section class="route-shell reveal">
+        <nav class="route-strip" aria-label="Temas">
+          <a class="route-link" href="../">Inicio</a>
+          <a class="route-link" href="../simplex/">Simplex</a>
+          <a class="route-link is-active" href="../transporte/">Transporte</a>
+          <a class="route-link" href="../asignacion/">Asignacion</a>
+          <a class="route-link" href="../decision/">Teoria de Decision</a>
+          <a class="route-link" href="../juegos/">Teoria de Juegos</a>
+        </nav>
+
+        <div class="route-panel">
+          <section class="results transport-panel">
+            <form id="transport-form" class="transport-form">
+              <div class="zone-head transport-toolbar">
+                <div class="dimension-bar transport-dimension-bar" role="group" aria-label="Dimensiones de transporte">
+                  <label class="field inline-count-field">
+                    <span>Ofertas</span>
+                    <input id="transport-origin-count" class="compact-number-input dimension-input" type="number" min="1" max="6" step="1" value="3" aria-label="Cantidad de origenes">
+                    <span class="mini-stepper">
+                      <button class="mini-stepper-button" type="button" data-delta="1" aria-label="Aumentar cantidad de origenes" title="Aumentar cantidad de origenes">&#9650;</button>
+                      <button class="mini-stepper-button" type="button" data-delta="-1" aria-label="Reducir cantidad de origenes" title="Reducir cantidad de origenes">&#9660;</button>
+                    </span>
+                  </label>
+                  <label class="field inline-count-field">
+                    <span>Demandas</span>
+                    <input id="transport-destination-count" class="compact-number-input dimension-input" type="number" min="1" max="6" step="1" value="4" aria-label="Cantidad de destinos">
+                    <span class="mini-stepper">
+                      <button class="mini-stepper-button" type="button" data-delta="1" aria-label="Aumentar cantidad de destinos" title="Aumentar cantidad de destinos">&#9650;</button>
+                      <button class="mini-stepper-button" type="button" data-delta="-1" aria-label="Reducir cantidad de destinos" title="Reducir cantidad de destinos">&#9660;</button>
+                    </span>
+                  </label>
+                </div>
+                <div class="transport-action-row">
+                  <button id="transport-load-simple-button" class="button secondary transport-clear-button" type="button">
+                    Ejercicio simple
+                  </button>
+                  <button id="transport-load-circuit-button" class="button secondary transport-clear-button" type="button">
+                    Ejercicio circuito
+                  </button>
+                  <button id="transport-load-degenerate-button" class="button secondary transport-clear-button" type="button">
+                    Ejercicio degenerado
+                  </button>
+                  <button id="transport-clear-button" class="button secondary transport-clear-button" type="button">
+                    Limpiar Tabla
+                  </button>
+                </div>
+              </div>
+
+              <div id="transport-grid" class="transport-grid"></div>
+            </form>
+            <div id="transport-results" class="transport-results"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="../script.js"></script>
+</body>
+</html>

@@ -1,15 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#09110f">
-  <title>Investigación Operativa</title>
-  <script>
-    if ("scrollRestoration" in history) {
-      history.scrollRestoration = "manual";
-    }
-  </script>
+  <title>Investigacion Operativa</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -21,146 +16,45 @@
       <section class="page-header reveal">
         <div class="page-header-bar">
           <div class="section-heading">
-            <p class="section-kicker">UTN</p>
+            <p class="section-kicker">UTN FRBA</p>
             <h1>Investigacion Operativa</h1>
-          </div>
-          <div class="display-mode-toggle" role="group" aria-label="Formato numerico">
-            <span class="display-mode-label">Formato</span>
-            <div class="display-mode-buttons">
-              <button id="display-decimal" class="display-mode-button" type="button" data-display-mode="decimal" aria-pressed="false">Decimal</button>
-              <button id="display-fraction" class="display-mode-button is-active" type="button" data-display-mode="fraction" aria-pressed="true">Fraccion</button>
-            </div>
           </div>
         </div>
       </section>
 
-      <section class="tab-shell reveal">
-        <div class="tab-strip" role="tablist" aria-label="Metodos de resolucion">
-          <button
-            class="tab-button is-active"
-            type="button"
-            id="tab-simplex"
-            role="tab"
-            aria-selected="true"
-            aria-controls="panel-simplex"
-            data-tab="simplex"
-          >
-            Simplex
-          </button>
-          <button
-            class="tab-button"
-            type="button"
-            id="tab-transport"
-            role="tab"
-            aria-selected="false"
-            aria-controls="panel-transport"
-            data-tab="transport"
-          >
-            Transporte
-          </button>
-        </div>
+      <section class="route-shell reveal">
+        <section class="route-panel">
+          <div class="topic-grid">
+            <a class="topic-link-card" href="./simplex/">
+              <span class="topic-tag">Disponible</span>
+              <h2>Simplex</h2>
+              <p>Modelo, tablas, pivotes, iteraciones y graficos.</p>
+            </a>
 
-        <div id="panel-simplex" class="tab-panel" role="tabpanel" aria-labelledby="tab-simplex">
-          <section class="composer">
-            <form id="simplex-form" class="model-form">
-              <section class="equation-zone">
-                <div class="zone-head compact-zone-head">
-                  <p class="zone-label">Funcion objetivo</p>
-                  <div class="field inline-field objective-mode-field">
-                    <span>Modo</span>
-                    <button id="objective-toggle" class="button secondary objective-toggle" type="button" aria-label="Cambiar entre maximizar y minimizar"></button>
-                  </div>
-                </div>
-                <div id="objective-expression" class="equation-grid"></div>
-              </section>
+            <a class="topic-link-card" href="./transporte/">
+              <span class="topic-tag">Disponible</span>
+              <h2>Transporte</h2>
+              <p>Esquina noroeste, costo minimo por columna, verificacion, circuito y casos degenerados.</p>
+            </a>
 
-              <section class="equation-zone">
-                <div class="zone-head compact-zone-head">
-                  <div class="dimension-bar embedded-dimension-bar" role="group" aria-label="Dimensiones del modelo">
-                    <label class="field inline-count-field">
-                      <span>Variables</span>
-                      <input id="variable-count" class="compact-number-input dimension-input" type="number" min="1" max="10" step="1" value="2" aria-label="Cantidad de variables">
-                      <span class="mini-stepper">
-                        <button class="mini-stepper-button" type="button" data-delta="1" aria-label="Aumentar cantidad de variables" title="Aumentar cantidad de variables">&#9650;</button>
-                        <button class="mini-stepper-button" type="button" data-delta="-1" aria-label="Reducir cantidad de variables" title="Reducir cantidad de variables">&#9660;</button>
-                      </span>
-                    </label>
-                    <label class="field inline-count-field">
-                      <span>Restricciones</span>
-                      <input id="constraint-count" class="compact-number-input dimension-input" type="number" min="1" max="10" step="1" value="4" aria-label="Cantidad de restricciones">
-                      <span class="mini-stepper">
-                        <button class="mini-stepper-button" type="button" data-delta="1" aria-label="Aumentar cantidad de restricciones" title="Aumentar cantidad de restricciones">&#9650;</button>
-                        <button class="mini-stepper-button" type="button" data-delta="-1" aria-label="Reducir cantidad de restricciones" title="Reducir cantidad de restricciones">&#9660;</button>
-                      </span>
-                    </label>
-                  </div>
-                </div>
-                <div id="constraints-list" class="constraint-list"></div>
-              </section>
+            <a class="topic-link-card is-wip" href="./asignacion/">
+              <span class="topic-tag">Work In Progress</span>
+              <h2>Asignacion</h2>
+            </a>
 
-            </form>
-          </section>
+            <a class="topic-link-card is-wip" href="./decision/">
+              <span class="topic-tag">Work In Progress</span>
+              <h2>Teoria de Decision</h2>
+            </a>
 
-          <div id="result-summary" class="result-summary empty-state">
-            Ajusta el modelo para ver automaticamente las tablas, pivotes y la solucion.
+            <a class="topic-link-card is-wip" href="./juegos/">
+              <span class="topic-tag">Work In Progress</span>
+              <h2>Teoria de Juegos</h2>
+            </a>
           </div>
-
-          <section class="results" id="results-section">
-            <div class="section-heading results-heading">
-              <p class="section-kicker">Resultado</p>
-              <h2>Gráficos e Iteraciones</h2>
-            </div>
-
-            <div id="graph-panel" class="graph-panel hidden"></div>
-
-            <div id="iteration-groups" class="iteration-groups"></div>
-          </section>
-        </div>
-
-        <div id="panel-transport" class="tab-panel hidden" role="tabpanel" aria-labelledby="tab-transport">
-          <section class="results transport-panel">
-            <form id="transport-form" class="transport-form">
-              <div class="zone-head transport-toolbar">
-                <div class="dimension-bar transport-dimension-bar" role="group" aria-label="Dimensiones de transporte">
-                  <label class="field inline-count-field">
-                    <span>Ofertas</span>
-                    <input id="transport-origin-count" class="compact-number-input dimension-input" type="number" min="1" max="6" step="1" value="3" aria-label="Cantidad de origenes">
-                    <span class="mini-stepper">
-                      <button class="mini-stepper-button" type="button" data-delta="1" aria-label="Aumentar cantidad de origenes" title="Aumentar cantidad de origenes">&#9650;</button>
-                      <button class="mini-stepper-button" type="button" data-delta="-1" aria-label="Reducir cantidad de origenes" title="Reducir cantidad de origenes">&#9660;</button>
-                    </span>
-                  </label>
-                  <label class="field inline-count-field">
-                    <span>Demandas</span>
-                    <input id="transport-destination-count" class="compact-number-input dimension-input" type="number" min="1" max="6" step="1" value="4" aria-label="Cantidad de destinos">
-                    <span class="mini-stepper">
-                      <button class="mini-stepper-button" type="button" data-delta="1" aria-label="Aumentar cantidad de destinos" title="Aumentar cantidad de destinos">&#9650;</button>
-                      <button class="mini-stepper-button" type="button" data-delta="-1" aria-label="Reducir cantidad de destinos" title="Reducir cantidad de destinos">&#9660;</button>
-                    </span>
-                  </label>
-                </div>
-                <div class="transport-action-row">
-                  <button id="transport-load-simple-button" class="button secondary transport-clear-button" type="button">
-                    Ejercicio simple
-                  </button>
-                  <button id="transport-load-circuit-button" class="button secondary transport-clear-button" type="button">
-                    Ejercicio circuito
-                  </button>
-                  <button id="transport-clear-button" class="button secondary transport-clear-button" type="button">
-                    Limpiar
-                  </button>
-                </div>
-              </div>
-
-              <div id="transport-grid" class="transport-grid"></div>
-            </form>
-            <div id="transport-results" class="transport-results"></div>
-          </section>
-        </div>
+        </section>
       </section>
     </main>
   </div>
-
-  <script src="script.js"></script>
 </body>
 </html>
