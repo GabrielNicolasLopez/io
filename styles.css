@@ -205,6 +205,22 @@ code {
   color: var(--text);
 }
 
+.simplex-preset-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.simplex-preset-buttons {
+  border-radius: 18px;
+}
+
+.simplex-preset-buttons .display-mode-button {
+  border-radius: 14px;
+}
+
 .tab-shell,
 .tab-panel,
 .route-shell,
@@ -1978,6 +1994,8 @@ select:focus {
   border-radius: 24px;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(226, 179, 107, 0.08));
   border: 1px solid var(--line);
+  display: grid;
+  gap: 18px;
 }
 
 .empty-state {
@@ -2023,9 +2041,25 @@ select:focus {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--panel-border);
+}
+
+.solution-pill {
+  border-radius: 999px;
+}
+
+.message-pill {
+  border-radius: 16px;
+  line-height: 1.35;
+}
+
+.summary-note-list {
+  gap: 8px;
+}
+
+.summary-note-list .message-pill {
+  flex: 1 1 100%;
 }
 
 .message-pill.warning {

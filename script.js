@@ -28,7 +28,8 @@ const state = {
   variableCount: 2,
   constraintCount: 4,
   numberFormat: "fraction",
-  objectiveType: "max",
+  activePreset: "mu",
+  objectiveType: "min",
   objectiveCoefficients: [4, 5],
   constraints: [
     { coefficients: [10, 4], relation: ">=", rhs: 3600 },
@@ -36,6 +37,32 @@ const state = {
     { coefficients: [1, 0], relation: "<=", rhs: 500 },
     { coefficients: [1, 2], relation: ">=", rhs: 1000 }
   ]
+};
+
+const SIMPLEX_PRESETS = {
+  mu: {
+    variableCount: 2,
+    constraintCount: 4,
+    objectiveType: "min",
+    objectiveCoefficients: [4, 5],
+    constraints: [
+      { coefficients: [10, 4], relation: ">=", rhs: 3600 },
+      { coefficients: [2, 1], relation: "<=", rhs: 1200 },
+      { coefficients: [1, 0], relation: "<=", rhs: 500 },
+      { coefficients: [1, 2], relation: ">=", rhs: 1000 }
+    ]
+  },
+  simple: {
+    variableCount: 2,
+    constraintCount: 3,
+    objectiveType: "max",
+    objectiveCoefficients: [20, 40],
+    constraints: [
+      { coefficients: [2, 4], relation: "<=", rhs: 500 },
+      { coefficients: [1, 1], relation: "<=", rhs: 200 },
+      { coefficients: [0, 1], relation: "<=", rhs: 100 }
+    ]
+  }
 };
 
 const transportState = {
@@ -139,7 +166,8 @@ const TRANSPORT_HIGHLIGHT_COLORS = [
 const variableCountInput = document.getElementById("variable-count");
 const constraintCountInput = document.getElementById("constraint-count");
 const objectiveToggle = document.getElementById("objective-toggle");
-const displayModeButtons = Array.from(document.querySelectorAll(".display-mode-button"));
+const displayModeButtons = Array.from(document.querySelectorAll("[data-display-mode]"));
+const simplexPresetButtons = Array.from(document.querySelectorAll("[data-simplex-preset]"));
 const objectiveExpression = document.getElementById("objective-expression");
 const constraintsList = document.getElementById("constraints-list");
 const simplexForm = document.getElementById("simplex-form");
@@ -950,6 +978,23 @@ function renderDisplayModeToggle() {
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-pressed", String(isActive));
   });
+}
+
+function renderSimplexPresetButtons() {
+  simplexPresetButtons.forEach((button) => {
+    const isActive = button.dataset.simplexPreset === state.activePreset;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
+function clearSimplexPresetSelection() {
+  if (state.activePreset === null) {
+    return;
+  }
+
+  state.activePreset = null;
+  renderSimplexPresetButtons();
 }
 
 function renderObjectiveExpression() {
@@ -3590,7 +3635,10 @@ function renderSummary(result) {
     `).join("");
 
     const messagePills = result.messages.map((message) => `
-      <span class="message-pill">${message}</span>
+      <span class="message-pill summary-note-pill">
+        <span class="assignment-inline-info-icon" aria-hidden="true">i</span>
+        <span>${message}</span>
+      </span>
     `).join("");
 
     resultSummary.classList.remove("empty-state");
@@ -3604,16 +3652,13 @@ function renderSummary(result) {
           <p class="summary-label">Valor optimo</p>
           <p class="summary-value">${formatValue(optimumValue)}</p>
         </div>
-      </div>
-      <div class="summary-block">
-        <p class="summary-label">Solucion</p>
-        <div class="solution-list">${solutionPills}</div>
+        <div class="summary-block">
+          <p class="summary-label">Solucion</p>
+          <div class="solution-list">${solutionPills}</div>
+        </div>
       </div>
       ${messagePills ? `
-        <div class="summary-block">
-          <p class="summary-label">Notas</p>
-          <div class="message-list">${messagePills}</div>
-        </div>
+        <div class="message-list summary-note-list">${messagePills}</div>
       ` : ""}
     `;
 
@@ -4168,7 +4213,33 @@ function syncDimensionsFromInputs({ normalize = false } = {}) {
     return;
   }
 
+  clearSimplexPresetSelection();
   resizeState(variables, constraints);
+  renderModel();
+  refreshResults();
+}
+
+function applySimplexPreset(presetKey) {
+  const preset = SIMPLEX_PRESETS[presetKey];
+
+  if (!preset) {
+    return;
+  }
+
+  state.activePreset = presetKey;
+  state.variableCount = preset.variableCount;
+  state.constraintCount = preset.constraintCount;
+  state.objectiveType = preset.objectiveType;
+  state.objectiveCoefficients = [...preset.objectiveCoefficients];
+  state.constraints = preset.constraints.map((constraint) => ({
+    coefficients: [...constraint.coefficients],
+    relation: constraint.relation,
+    rhs: constraint.rhs
+  }));
+
+  variableCountInput.value = String(state.variableCount);
+  constraintCountInput.value = String(state.constraintCount);
+  renderSimplexPresetButtons();
   renderModel();
   refreshResults();
 }
@@ -6814,6 +6885,7 @@ function syncAssignmentDimensionsFromInputs({ normalize = false } = {}) {
 }
 
 objectiveToggle?.addEventListener("click", () => {
+  clearSimplexPresetSelection();
   state.objectiveType = state.objectiveType === "max" ? "min" : "max";
   renderObjectiveToggle();
   renderObjectiveExpression();
@@ -6831,6 +6903,12 @@ displayModeButtons.forEach((button) => {
     state.numberFormat = nextMode;
     renderDisplayModeToggle();
     refreshResults();
+  });
+});
+
+simplexPresetButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    applySimplexPreset(button.dataset.simplexPreset);
   });
 });
 
@@ -6888,12 +6966,15 @@ simplexForm?.addEventListener("input", (event) => {
   const scope = target.dataset.scope;
 
   if (scope === "objective") {
+    clearSimplexPresetSelection();
     state.objectiveCoefficients[Number(target.dataset.index)] = parseNumericValue(target.value);
   } else if (scope === "constraint") {
+    clearSimplexPresetSelection();
     const rowIndex = Number(target.dataset.row);
     const columnIndex = Number(target.dataset.index);
     state.constraints[rowIndex].coefficients[columnIndex] = parseNumericValue(target.value);
   } else if (scope === "rhs") {
+    clearSimplexPresetSelection();
     const rowIndex = Number(target.dataset.row);
     state.constraints[rowIndex].rhs = parseNumericValue(target.value);
   }
@@ -6929,6 +7010,7 @@ simplexForm?.addEventListener("click", (event) => {
 
   const rowIndex = Number(relationButton.dataset.row);
   const nextRelation = getNextRelation(state.constraints[rowIndex].relation);
+  clearSimplexPresetSelection();
   state.constraints[rowIndex].relation = nextRelation;
   relationButton.innerHTML = renderRelationSymbol(nextRelation);
   relationButton.setAttribute("aria-label", `Relacion de la restriccion ${rowIndex + 1}: ${nextRelation}. Click para cambiar`);
@@ -7288,6 +7370,7 @@ assignmentLoadMaximumButton?.addEventListener("click", () => {
 if (hasSimplexPage) {
   resizeState(state.variableCount, state.constraintCount);
   renderDisplayModeToggle();
+  renderSimplexPresetButtons();
   renderModel();
   refreshResults();
 }
