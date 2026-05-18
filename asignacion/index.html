@@ -6,10 +6,15 @@
   <meta name="theme-color" content="#09110f">
   <title>Investigacion Operativa | Asignacion</title>
   <link rel="icon" type="image/x-icon" href="../favicon.ico">
+  <script>
+    if ("scrollRestoration" in history) {
+      history.scrollRestoration = "manual";
+    }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="../styles.css?v=20260510b">
+  <link rel="stylesheet" href="../styles.css?v=20260517n">
 </head>
 <body>
   <div class="app-shell">
@@ -33,14 +38,55 @@
           <a class="route-link" href="../juegos/">Teoria de Juegos</a>
         </nav>
 
-        <section class="results wip-panel route-panel">
-          <div class="section-heading">
-            <p class="section-kicker">Work In Progress</p>
-            <h2>Asignacion</h2>
-          </div>
-        </section>
+        <div class="route-panel">
+          <section class="results transport-panel">
+            <form id="assignment-form" class="transport-form">
+              <input id="assignment-row-count" type="hidden" value="5">
+              <input id="assignment-column-count" type="hidden" value="5">
+              <div class="zone-head transport-toolbar assignment-toolbar">
+                <div class="assignment-toolbar-stack">
+                  <div class="assignment-toolbar-row assignment-toolbar-row-primary">
+                    <div class="display-mode-toggle assignment-mode-toggle">
+                      <span class="display-mode-label">Resolver como</span>
+                      <div class="display-mode-buttons" role="group" aria-label="Tipo de resolucion para asignacion">
+                        <button class="display-mode-button" type="button" data-assignment-mode="min" aria-pressed="true">
+                          Minimo
+                        </button>
+                        <button class="display-mode-button" type="button" data-assignment-mode="max" aria-pressed="false">
+                          Maximo
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="assignment-toolbar-row assignment-toolbar-row-secondary">
+                    <div class="transport-action-row">
+                      <div class="display-mode-toggle assignment-examples-toggle">
+                        <span class="display-mode-label">Ejemplos</span>
+                        <div class="display-mode-buttons assignment-example-buttons" role="group" aria-label="Ejemplos de asignacion">
+                          <button id="assignment-load-minimum-button" class="display-mode-button assignment-example-button" type="button" data-assignment-example="minimum">
+                            Ejercicio de minimos
+                          </button>
+                          <button id="assignment-load-maximum-button" class="display-mode-button assignment-example-button" type="button" data-assignment-example="maximum">
+                            Ejercicio de maximos
+                          </button>
+                        </div>
+                      </div>
+                      <button id="assignment-clear-button" class="button secondary transport-clear-button assignment-clear-button" type="button">
+                        Limpiar Tabla
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="assignment-grid" class="transport-grid"></div>
+            </form>
+            <div id="assignment-results" class="transport-results"></div>
+          </section>
+        </div>
       </section>
     </main>
   </div>
+  <script src="../script.js?v=20260517r"></script>
 </body>
 </html>
