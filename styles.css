@@ -2496,8 +2496,8 @@ select:focus {
 
 .classroom-wrap {
   overflow: hidden;
-  border-radius: 22px;
-  border: 1px solid var(--line);
+  border-radius: 0;
+  border: none;
   background: var(--surface-soft);
   padding: 0;
 }
@@ -2525,23 +2525,40 @@ select:focus {
 }
 
 .classroom-tableau tr:first-child > :first-child {
-  border-top-left-radius: 18px;
+  border-top-left-radius: 0;
 }
 
 .classroom-tableau tr:first-child > :last-child {
-  border-top-right-radius: 18px;
+  border-top-right-radius: 0;
 }
 
 .classroom-tableau tr:last-child > :first-child {
-  border-bottom-left-radius: 18px;
+  border-bottom-left-radius: 0;
 }
 
 .classroom-tableau tr:last-child > :last-child {
-  border-bottom-right-radius: 18px;
+  border-bottom-right-radius: 0;
 }
 
 .classroom-tableau tr:first-child > * {
   border-top: none;
+}
+
+.classroom-tableau thead .cj-row > :not(.top-blank):not(.top-gap):not(.guide-gutter) {
+  border-top: 1.5px solid var(--table-border);
+}
+
+.classroom-tableau .column-row > :first-child,
+.classroom-tableau tbody tr > :first-child {
+  border-left: 1.5px solid var(--table-border);
+}
+
+.classroom-tableau thead .column-row > * {
+  border-bottom: 1.5px solid var(--table-border);
+}
+
+.classroom-tableau tbody tr:first-child > * {
+  border-top: 1.5px solid var(--table-border);
 }
 
 .classroom-tableau tr:last-child > * {
@@ -2575,18 +2592,22 @@ select:focus {
 
 .classroom-tableau .top-gap {
   width: auto;
+  border-left: 2.5px solid var(--table-border);
 }
 
 .classroom-tableau .iteration-spot {
   min-width: 0;
   padding: 0 8px 10px 2px;
+  border: none !important;
+  background: transparent !important;
   text-align: left;
-  vertical-align: bottom;
+  vertical-align: middle;
 }
 
 .table-iteration-label {
   display: grid;
   gap: 4px;
+  justify-items: start;
 }
 
 .table-iteration-title,
@@ -2675,8 +2696,9 @@ select:focus {
 .classroom-tableau .guide-gutter {
   min-width: 10px;
   padding: 0 0 0 1px;
-  border: none;
-  background: transparent;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .classroom-tableau .row-guide-cell {
@@ -2684,6 +2706,9 @@ select:focus {
   vertical-align: middle;
   min-width: 10px;
   padding-left: 1px;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .classroom-tableau .column-guide-cell {
@@ -2732,6 +2757,15 @@ select:focus {
   padding-top: 0;
   padding-right: 4px;
   padding-bottom: 0;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.classroom-tableau .guide-row > * {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .classroom-tableau .guide-row .guide-gutter {
@@ -2770,6 +2804,11 @@ select:focus {
 .classroom-tableau .objective-row td {
   background: rgba(33, 33, 33, 0.98);
   font-weight: 800;
+}
+
+.classroom-tableau .objective-row .z-ratio-empty {
+  border-right: none;
+  border-bottom: none;
 }
 
 .classroom-tableau .pivot-row td {

@@ -2204,29 +2204,34 @@ function buildGraphData2D(result) {
     }
   });
 
-  const workingAxisMax = niceAxisLimit(Math.max(
-    ...xCandidateValues.filter((value) => Number.isFinite(value) && value >= 0),
+  const workingXMax = niceAxisLimit(Math.max(
+    ...xCandidateValues.filter((value) => Number.isFinite(value) && value >= 0)
+  ));
+  const workingYMax = niceAxisLimit(Math.max(
     ...yCandidateValues.filter((value) => Number.isFinite(value) && value >= 0)
   ));
   let region = [
     { x: 0, y: 0 },
-    { x: workingAxisMax, y: 0 },
-    { x: workingAxisMax, y: workingAxisMax },
-    { x: 0, y: workingAxisMax }
+    { x: workingXMax, y: 0 },
+    { x: workingXMax, y: workingYMax },
+    { x: 0, y: workingYMax }
   ];
 
   constraints.forEach((constraint) => {
     region = clipPolygonWithConstraint(region, constraint);
   });
 
-  const regionAxisMax = fitAxisLimit(Math.max(
+  const xMax = fitAxisLimit(Math.max(
     1,
     optimum.x,
-    optimum.y,
     ...region.map((point) => point.x).filter((value) => Number.isFinite(value) && value >= 0),
+    ...xCandidateValues.filter((value) => Number.isFinite(value) && value >= 0)
+  ));
+  const yMax = fitAxisLimit(Math.max(
+    1,
+    optimum.y,
     ...region.map((point) => point.y).filter((value) => Number.isFinite(value) && value >= 0)
   ));
-  const axisMax = Math.max(workingAxisMax, regionAxisMax);
 
   const bindingConstraints = constraints.filter((constraint) => (
     Math.abs(evaluateConstraint(constraint, optimum) - constraint.rhs) <= 1e-6
@@ -2245,21 +2250,21 @@ function buildGraphData2D(result) {
   const objectiveSegment = buildLineSegmentInBounds({
     coefficients: [state.objectiveCoefficients[0], state.objectiveCoefficients[1]],
     rhs: (state.objectiveCoefficients[0] * optimum.x) + (state.objectiveCoefficients[1] * optimum.y)
-  }, axisMax, axisMax);
+  }, xMax, yMax);
 
   return {
     type: "graph-2d",
     dimension: 2,
-    xMax: axisMax,
-    yMax: axisMax,
-    xTicks: getAxisTicks(axisMax),
-    yTicks: getAxisTicks(axisMax),
+    xMax,
+    yMax,
+    xTicks: getAxisTicks(xMax),
+    yTicks: getAxisTicks(yMax),
     optimum,
     region,
     objectiveSegment,
     constraints: constraints.map((constraint, index) => ({
       ...constraint,
-      segment: buildLineSegmentInBounds(constraint, axisMax, axisMax),
+      segment: buildLineSegmentInBounds(constraint, xMax, yMax),
       binding: bindingConstraints.some((item) => item.rowIndex === constraint.rowIndex),
       color: THEME.graphConstraintColors[index % THEME.graphConstraintColors.length]
     })),
@@ -2495,27 +2500,21 @@ function renderGraph2D(graphData) {
   const width = 1120;
   const height = 760;
   const padding = {
-    top: 34,
-    right: 38,
-    bottom: 72,
-    left: 76
+    top: 28,
+    right: 28,
+    bottom: 62,
+    left: 66
   };
-  const usableWidth = width - padding.left - padding.right;
-  const usableHeight = height - padding.top - padding.bottom;
-  const uniformScale = Math.min(
-    usableWidth / Math.max(graphData.xMax, EPSILON),
-    usableHeight / Math.max(graphData.yMax, EPSILON)
-  );
-  const plotWidth = graphData.xMax * uniformScale;
-  const plotHeight = graphData.yMax * uniformScale;
-  const plotLeft = padding.left + ((usableWidth - plotWidth) / 2);
-  const plotRight = plotLeft + plotWidth;
-  const plotBottom = height - padding.bottom - ((usableHeight - plotHeight) / 2);
-  const plotTop = plotBottom - plotHeight;
+  const plotLeft = padding.left;
+  const plotRight = width - padding.right;
+  const plotTop = padding.top;
+  const plotBottom = height - padding.bottom;
+  const scaleX = (plotRight - plotLeft) / Math.max(graphData.xMax, EPSILON);
+  const scaleY = (plotBottom - plotTop) / Math.max(graphData.yMax, EPSILON);
 
   const toSvgPoint = (point) => ({
-    x: plotLeft + (point.x * uniformScale),
-    y: plotBottom - (point.y * uniformScale)
+    x: plotLeft + (point.x * scaleX),
+    y: plotBottom - (point.y * scaleY)
   });
 
   const regionPoints = graphData.region.map(toSvgPoint);
@@ -2543,7 +2542,7 @@ function renderGraph2D(graphData) {
 
     return `
       <line x1="${point.x}" y1="${plotTop}" x2="${point.x}" y2="${plotBottom}" stroke="${THEME.graphGrid}" stroke-dasharray="3 6" />
-      <text x="${point.x}" y="${plotBottom + 26}" text-anchor="middle" fill="${THEME.graphLabel}" font-size="13">${formatGraphNumber(tick)}</text>
+      <text x="${point.x}" y="${plotBottom + 27}" text-anchor="middle" fill="${THEME.graphLabel}" font-size="15">${formatGraphNumber(tick)}</text>
     `;
   }).join("");
 
@@ -2552,7 +2551,7 @@ function renderGraph2D(graphData) {
 
     return `
       <line x1="${plotLeft}" y1="${point.y}" x2="${plotRight}" y2="${point.y}" stroke="${THEME.graphGrid}" stroke-dasharray="3 6" />
-      <text x="${plotLeft - 14}" y="${point.y + 5}" text-anchor="end" fill="${THEME.graphLabel}" font-size="13">${formatGraphNumber(tick)}</text>
+      <text x="${plotLeft - 13}" y="${point.y + 5}" text-anchor="end" fill="${THEME.graphLabel}" font-size="15">${formatGraphNumber(tick)}</text>
     `;
   }).join("");
 
@@ -3913,7 +3912,7 @@ function buildTableMarkup(snapshot, previousSnapshot = null) {
           <tr class="objective-row classroom-z-row">
             <td colspan="3" class="z-label section-divider-right ${zHoverExpression ? "calc-trigger" : ""}" ${zHoverExpression ? `tabindex="0" data-guide-target="bottom" data-calc-expression="${escapeHtml(zHoverExpression.replaceAll("&times;", "x"))}" data-calc-result="${escapeHtml(formatValue(displayObjectiveRow[rhsColumnIndex]))}" data-current-highlights="${escapeHtml(JSON.stringify(zCurrentHighlights))}"` : ""}>${zLabelText}</td>
             ${objectiveCells}
-            <td class="ratio-cell section-divider-left">&nbsp;</td>
+            <td class="ratio-cell z-ratio-empty section-divider-left">&nbsp;</td>
             <td class="guide-gutter">&nbsp;</td>
           </tr>
           ${bottomGuideMarkup}
